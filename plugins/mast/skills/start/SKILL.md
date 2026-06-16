@@ -22,7 +22,7 @@ If not found, **stop and show this installation gate**. Do not proceed past it w
 
 > mast is not installed. Pick one:
 >
-> - **macOS / Linux:** `brew install MastSystems/tap/mast`
+> - **macOS / Linux:** download the latest prebuilt binary from [GitHub Releases](https://github.com/MastSystems/mast-skills/releases/latest) (Linux x86_64, macOS Intel, and Apple Silicon, each with a `.sha256` sidecar)
 > - **Repos that pin a mast release in `.mast-version`:** run `./bin/mast <args>` (the shim fetches and SHA-verifies the pinned release binary)
 > - **Other platforms:** see [Installation](https://github.com/MastSystems/mast-skills#installation)
 >
