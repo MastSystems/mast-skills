@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mast\" agent hook read" }
+        ]
+      },
+      {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          { "type": "command", "command": "\"${CLAUDE_PLUGIN_ROOT}/bin/mast\" agent hook edit" }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c '[ -x \"${CLAUDE_PLUGIN_ROOT}/bin/mast\" ] || printf \"%s\\n  %s\\n  %s\\n\" \"mast shim missing from the plugin — the mast Claude Code plugin ships bin/mast and could not find it.\" \"Reinstall: /plugin install mast@mastsystems\" \"Other:   https://github.com/MastSystems/mast-skills#installation\" >&2; exit 0'"
+          }
+        ]
+      }
+    ]
+  }
+}

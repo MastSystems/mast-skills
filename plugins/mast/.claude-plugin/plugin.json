@@ -1,0 +1,10 @@
+{
+  "name": "mast",
+  "version": "0.15.3",
+  "description": "Skills, hooks, and subagents for CLI-mediated .mspec access via the mast binary",
+  "author": {
+    "name": "mastsystems"
+  },
+  "repository": "https://github.com/MastSystems/mast-skills",
+  "license": "MIT"
+}

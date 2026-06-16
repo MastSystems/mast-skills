@@ -1,0 +1,260 @@
+#!/bin/sh
+# mast — POSIX baseline-binary shim.
+#
+# Fetches the prebuilt `mast` binary for the version pinned in
+# `.mast-version`, caches it under `${MAST_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/mast}/<TAG>/mast`,
+# verifies SHA-256, and `exec`s it with the caller's argv. Subsequent
+# invocations serve straight from cache.
+#
+# Supported targets:
+#   Linux  x86_64  -> x86_64-unknown-linux-gnu
+#   Darwin x86_64  -> x86_64-apple-darwin
+#   Darwin arm64   -> aarch64-apple-darwin
+# Any other host falls back to `cargo run --release -p mast`.
+#
+# URL pattern (per .github/workflows/release-artifacts.yml):
+#   https://github.com/MastSystems/mast-skills/releases/download/<TAG>/mast-<TRIPLE>.tar.gz
+#   https://github.com/MastSystems/mast-skills/releases/download/<TAG>/mast-<TRIPLE>.tar.gz.sha256
+#
+# Env knobs:
+#   MAST_CACHE_DIR    Override cache root (default: $XDG_CACHE_HOME/mast or ~/.cache/mast).
+#   MAST_FORCE_REFRESH=1   Re-download even when the cached binary exists.
+#   MAST_OFFLINE=1    Skip downloads entirely; on cache miss, fall back to cargo.
+
+set -eu
+
+log() { printf 'mast: %s\n' "$1" >&2; }
+die() { log "$1"; exit 1; }
+
+# Resolve the shim's own directory so we can find .mast-version alongside it.
+# `CDPATH= cd` is the POSIX idiom for one-shot CDPATH scoping; shellcheck
+# flags the surrounding space (SC1007) but the empty-string assignment is
+# intentional — without it, a user's CDPATH could rewrite our `cd` target.
+# shellcheck disable=SC1007
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+# shellcheck disable=SC1007
+REPO_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
+VERSION_FILE="$REPO_ROOT/.mast-version"
+
+[ -f "$VERSION_FILE" ] || die "missing $VERSION_FILE — re-run from a checkout of mast-spec, or create the file with a single line like 'v0.11.0'."
+
+# Strip trailing whitespace/newlines from the version pin.
+TAG=$(tr -d '[:space:]' < "$VERSION_FILE")
+[ -n "$TAG" ] || die ".mast-version is empty — set it to a release tag (e.g. v0.11.0)."
+
+# Workspace version from the source checkout (mast-spec only). Used by the
+# staleness guard below to detect a pinned binary that predates the corpus
+# language version — the silent-empty footgun where an older binary parses
+# newer specs to nothing and still exits 0 (looks like "0 specs", not a
+# failure). Empty when this shim is vendored outside the source tree.
+WS_VER=''
+if [ -f "$REPO_ROOT/cmd/mast/Cargo.toml" ] && [ -f "$REPO_ROOT/Cargo.toml" ]; then
+    WS_VER=$(sed -n '/^\[workspace.package\]/,/^\[/s/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$REPO_ROOT/Cargo.toml" 2>/dev/null | head -n1)
+fi
+
+cargo_fallback() {
+    # $1 is a short reason for the stderr trace; the remaining args
+    # are the caller's argv that must be forwarded to mast. We `shift`
+    # the reason off so `"$@"` below is exactly what the user typed.
+    # Prefer an already-built release binary over a cold `cargo run` so
+    # the fallback is fast when the developer has built locally.
+    _reason=$1
+    shift
+    if [ -x "$REPO_ROOT/target/release/mast" ]; then
+        log "$_reason; using local build at target/release/mast."
+        exec "$REPO_ROOT/target/release/mast" "$@"
+    fi
+    # No prebuilt binary for this host and no source tree to compile from
+    # (e.g. this shim vendored inside a Claude Code plugin install, not a
+    # mast-spec checkout). Cargo can't help here — fail with install guidance
+    # rather than emitting a confusing 'cargo: command not found' or building
+    # in someone else's working directory.
+    if [ ! -f "$REPO_ROOT/Cargo.toml" ]; then
+        die "$_reason, and no mast source tree is present to build from.
+  Prebuilt binaries cover only: Linux x86_64, macOS x86_64, macOS arm64.
+  Install for this host from: https://github.com/MastSystems/mast-skills/releases/latest
+  or see: https://github.com/MastSystems/mast-skills#installation"
+    fi
+    log "$_reason; falling back to 'cargo run --release -p mast'."
+    cd "$REPO_ROOT"
+    exec cargo run --release --quiet -p mast -- "$@"
+}
+
+# Guard against the silent-empty footgun: if the resolved release binary is
+# OLDER than the workspace it was checked out alongside, it may parse the
+# current corpus to empty and exit 0. Warn loudly and prefer the local build.
+# Scoped to the source tree (WS_VER set) so a vendored consumer shim never
+# compares against an unrelated workspace version. $1 is the binary to check.
+guard_stale_binary() {
+    # F3 fix: $1 is the binary path; the remaining positional args ($2, $3,
+    # …) are the caller's argv to forward. We capture and shift $1 so that
+    # the `exec` below receives only the original user args — not $1 (the
+    # binary path) prepended as a spurious first argument to mast.
+    _gsb_bin=$1
+    shift
+    [ -n "$WS_VER" ] || return 0
+    _bv=$("$_gsb_bin" --version 2>/dev/null | awk '{print $NF}')
+    [ -n "$_bv" ] || return 0
+    [ "$_bv" != "$WS_VER" ] || return 0
+    # Only fire when the binary is strictly older than the workspace.
+    _older=$(printf '%s\n%s\n' "$WS_VER" "$_bv" | sort -V 2>/dev/null | head -n1)
+    [ "$_older" = "$_bv" ] || return 0
+    log "WARNING: pinned binary $_bv (.mast-version=$TAG) is older than workspace $WS_VER."
+    log "         an older binary can parse newer specs to empty and exit 0 (looks like '0 specs')."
+    if [ -x "$REPO_ROOT/target/release/mast" ]; then
+        log "         using local build at target/release/mast instead."
+        exec "$REPO_ROOT/target/release/mast" "$@"
+    fi
+    log "         bump .mast-version to a matching release, or run: cargo build --release -p mast"
+}
+
+# Map uname -sm onto the release-artifacts.yml target triples.
+HOST=$(uname -sm)
+case "$HOST" in
+    'Linux x86_64')   TRIPLE='x86_64-unknown-linux-gnu' ;;
+    'Darwin x86_64')  TRIPLE='x86_64-apple-darwin' ;;
+    'Darwin arm64')   TRIPLE='aarch64-apple-darwin' ;;
+    *)
+        # Unsupported host: ARM Linux, Windows-via-Cygwin, musl, BSDs, etc.
+        cargo_fallback "unsupported host '$HOST'" "$@"
+        ;;
+esac
+
+CACHE_ROOT="${MAST_CACHE_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/mast}"
+CACHE_DIR="$CACHE_ROOT/$TAG"
+CACHED_BIN="$CACHE_DIR/mast"
+
+if [ -z "${MAST_FORCE_REFRESH:-}" ] && [ -x "$CACHED_BIN" ]; then
+    guard_stale_binary "$CACHED_BIN" "$@"
+    exec "$CACHED_BIN" "$@"
+fi
+
+if [ -n "${MAST_OFFLINE:-}" ]; then
+    cargo_fallback "MAST_OFFLINE set and no cached binary at $CACHED_BIN" "$@"
+fi
+
+# Pick a sha256 verifier: GNU sha256sum on Linux, BSD shasum -a 256 on macOS.
+if command -v sha256sum >/dev/null 2>&1; then
+    SHA_CHECK='sha256sum -c'
+elif command -v shasum >/dev/null 2>&1; then
+    SHA_CHECK='shasum -a 256 -c'
+else
+    die "neither sha256sum nor shasum is on PATH — cannot verify download."
+fi
+
+REPO="MastSystems/mast-skills"
+ARCHIVE_NAME="mast-$TRIPLE.tar.gz"
+SHA_NAME="$ARCHIVE_NAME.sha256"
+
+log "fetching $TAG for $TRIPLE from GitHub Releases (first-run only)..."
+
+mkdir -p "$CACHE_DIR"
+
+# Stage downloads inside the cache dir so the final atomic mv is a same-fs
+# rename — and so a kill -9 mid-extract leaves a stranded WORK_DIR rather
+# than corrupting the cache slot.
+WORK_DIR=$(mktemp -d "$CACHE_DIR/.fetch.XXXXXX")
+cleanup() { rm -rf "$WORK_DIR"; }
+trap cleanup EXIT INT HUP TERM
+
+# Sidecar's filename column refers to `mast-<TRIPLE>.tar.gz`, so we save
+# the archive under that exact name inside WORK_DIR — then `cd WORK_DIR &&
+# sha256sum -c sha` resolves to the local file with no sed munging.
+ARCHIVE_PATH="$WORK_DIR/$ARCHIVE_NAME"
+SHA_PATH="$WORK_DIR/$SHA_NAME"
+
+# Download strategy: the browser download URL (github.com/.../releases/
+# download/...) works for public repos but returns 404 for private repos.
+# When GITHUB_TOKEN is set, use the GitHub API to resolve asset IDs and
+# download via api.github.com with Accept: application/octet-stream.
+if [ -n "${GITHUB_TOKEN:-}" ]; then
+    # Per GitHub docs, private repo release assets must be downloaded via
+    # the API: GET /repos/{owner}/{repo}/releases/assets/{id} with
+    # Accept: application/octet-stream. The server returns 200 (streamed)
+    # or 302 (redirect to CDN); -L follows either.
+    # https://docs.github.com/en/rest/releases/assets
+    API_BASE="https://api.github.com/repos/$REPO"
+
+    # Fetch release metadata once — reused for both asset lookups.
+    RELEASE_JSON="$WORK_DIR/.release.json"
+    # A missing release (e.g. the pin points at a tag not yet published) is
+    # recoverable: fall back to the local build instead of bricking the shim.
+    curl -fsSL --retry 3 --retry-delay 2 \
+        -H "Authorization: token $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -o "$RELEASE_JSON" \
+        "$API_BASE/releases/tags/$TAG" \
+        || cargo_fallback "release $TAG not found on GitHub (not published yet?)" "$@"
+
+    resolve_asset_id() {
+        python3 -c "
+import json, sys
+name = sys.argv[1]
+data = json.load(open(sys.argv[2]))
+for a in data.get('assets', []):
+    if a['name'] == name:
+        print(a['id'])
+        sys.exit(0)
+print('Asset not found: ' + name, file=sys.stderr)
+sys.exit(1)
+" "$1" "$RELEASE_JSON"
+    }
+
+    # Returns non-zero (rather than die-ing) so the caller can fall back.
+    dl_asset() {
+        _name=$1; _dest=$2; _extra_flags=$3
+        _id=$(resolve_asset_id "$_name") || return 1
+        # shellcheck disable=SC2086
+        curl -fsSL --retry 3 --retry-delay 2 $_extra_flags \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/octet-stream" \
+            -o "$_dest" \
+            "$API_BASE/releases/assets/$_id" \
+            || return 1
+    }
+
+    # F17 fix: a download failure for a known asset (the release metadata
+    # already confirmed it exists) is a hard error — not a reason to exec
+    # whatever stale binary might be cached. Exec'ing a cached binary of an
+    # unknown version after a failed fetch is a security and correctness hazard.
+    dl_asset "$SHA_NAME"     "$SHA_PATH"     "" \
+        || die "fetch failed: release $TAG asset $SHA_NAME could not be downloaded (network error or HTTP failure). Check connectivity or set MAST_OFFLINE=1 to use a local build."
+    dl_asset "$ARCHIVE_NAME" "$ARCHIVE_PATH" "--progress-bar" \
+        || die "fetch failed: release $TAG asset $ARCHIVE_NAME could not be downloaded (network error or HTTP failure). Check connectivity or set MAST_OFFLINE=1 to use a local build."
+else
+    BASE_URL="https://github.com/$REPO/releases/download/$TAG"
+
+    # F17 fix: a fetch failure at a known public URL is a hard error. The
+    # shim must NOT fall back to exec'ing a stale cached binary after a
+    # failed download — the cached binary could be a different version,
+    # which would silently parse the corpus to empty and exit 0.
+    curl -fsSL --retry 3 --retry-delay 2 \
+        -o "$SHA_PATH" "$BASE_URL/$SHA_NAME" \
+        || die "fetch failed: could not download $SHA_NAME from $BASE_URL (network error or HTTP failure). Check connectivity, verify TAG=$TAG exists in releases, or set MAST_OFFLINE=1 to use a local build."
+
+    curl -fsSL --retry 3 --retry-delay 2 --progress-bar \
+        -o "$ARCHIVE_PATH" "$BASE_URL/$ARCHIVE_NAME" \
+        || die "fetch failed: could not download $ARCHIVE_NAME from $BASE_URL (network error or HTTP failure). Check connectivity, verify TAG=$TAG exists in releases, or set MAST_OFFLINE=1 to use a local build."
+fi
+
+(cd "$WORK_DIR" && $SHA_CHECK "$SHA_NAME") >/dev/null \
+    || die "checksum verification failed for $ARCHIVE_NAME"
+
+# Extract into WORK_DIR so the only thing that ever touches $CACHED_BIN is
+# the final mv. tar -C keeps the cwd untouched for the surrounding script.
+tar -xzf "$ARCHIVE_PATH" -C "$WORK_DIR" \
+    || die "failed to extract $ARCHIVE_NAME"
+
+[ -f "$WORK_DIR/mast" ] || die "$ARCHIVE_NAME did not contain a 'mast' binary at the archive root."
+
+chmod +x "$WORK_DIR/mast"
+mv -f "$WORK_DIR/mast" "$CACHED_BIN"
+
+# `exec` replaces this shell, so the EXIT trap never fires — clean up the
+# fetch staging dir explicitly. The atomic mv above already moved the
+# binary out, so removing WORK_DIR only drops the tarball + sidecar.
+cleanup
+trap - EXIT INT HUP TERM
+
+guard_stale_binary "$CACHED_BIN" "$@"
+exec "$CACHED_BIN" "$@"
