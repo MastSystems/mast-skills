@@ -38,9 +38,15 @@ VERSION_FILE="$REPO_ROOT/.mast-version"
 
 [ -f "$VERSION_FILE" ] || die "missing $VERSION_FILE — re-run from a checkout of mast-spec, or create the file with a single line like 'v0.11.0'."
 
-# Strip trailing whitespace/newlines from the version pin.
-TAG=$(tr -d '[:space:]' < "$VERSION_FILE")
-[ -n "$TAG" ] || die ".mast-version is empty — set it to a release tag (e.g. v0.11.0)."
+# Extract the version pin, tolerating an optional leading 'v' and a trailing
+# release-please annotation comment (e.g. "v0.15.3 # x-release-please-version").
+# The annotation lets release-please bump the pin *inside* the release PR, so
+# the shipped pin matches the binaries published in the same release — instead
+# of lagging a version behind via a separate post-release bump. Take the first
+# version-shaped token and normalize to a 'v'-prefixed release tag.
+TAG=$(sed -n 's/^[[:space:]]*\(v\{0,1\}[0-9][0-9A-Za-z.-]*\).*$/\1/p' "$VERSION_FILE" | head -n1)
+[ -n "$TAG" ] || die ".mast-version has no version pin — expected a line like 'v0.11.0' (optionally followed by a release-please annotation)."
+TAG="v${TAG#v}"
 
 # Workspace version from the source checkout (mast-spec only). Used by the
 # staleness guard below to detect a pinned binary that predates the corpus
