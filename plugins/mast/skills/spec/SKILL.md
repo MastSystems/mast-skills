@@ -348,23 +348,30 @@ On success: parse, per-file lint (errors block; warnings to stderr), canonical f
 
 ### Mode: Patch
 
-Apply a typed mutation to an existing `.mspec` (patch is `.mspec`-only). Each patch is a closed-sum operation over the AST — the dispatcher loads the spec, parses it, applies the typed payload, runs per-file lint, canonical-formats, and atomic-writes. If any stage fails the file on disk is unchanged. The patch surface is a **typed sum of exactly 8 operations**; if your edit doesn't match one, fall back to write mode (re-stage the whole spec).
+Apply a typed mutation to an existing spec **without** re-staging its full content. Each patch is a closed-sum operation — the dispatcher loads the file, detects its kind, parses it, applies the typed payload, runs per-file lint, canonical-formats, and atomic-writes. If any stage fails the file on disk is unchanged. The patch surface is a **closed typed sum**; if your edit doesn't match a branch, fall back to write mode (re-stage the whole file).
 
-**Gather.** Pick the operation from the closed tree:
+Patch is **not** `.mspec`-only. The branches split by file kind:
+
+- `rule` and `boundary` are **`.mspec`-only** — running them on a `.march` or `.mtypes` is rejected (`patch kind "rule add" is not supported for .march files; only \`header set\`/\`header remove\` are valid for this file kind`).
+- `header set` / `header remove` work on **all three kinds** (`.mspec`, `.march`, `.mtypes`) — e.g. `design:`/`plan:` on any kind, `default-edge-type:` on a `.mtypes`.
+- `mask` is **kind-dispatched** across all three kinds: it reads a JSON merge-mask from stdin and routes to `patchSpec` (`.mspec`), `patchMarch` (`.march`), or `patchMtypes` (`.mtypes`). This is the agent-facing surface for editing `.march`/`.mtypes` content (components, edges, edge-types, component-types) — `rule`/`boundary` cannot touch those kinds, so `mask` is how you write them.
+
+**Gather.** Pick the branch from the closed tree:
 
 ```
 mast spec patch <SPEC_ID>
-+-- rule
++-- rule                                 # .mspec ONLY (rejected on .march/.mtypes)
 |   +-- add                              # stdin: bare `Rule R<n> [chip]` block
 |   +-- update <RULE_ID>                 # stdin: bare `Rule R<n> [chip]` block (R<n> must match arg)
 |   +-- remove <RULE_ID> --confirm
 |   +-- set-status <RULE_ID> --status pending|active|amended|retired [--anchor SYMBOL ...]
-+-- boundary
++-- boundary                             # .mspec ONLY (rejected on .march/.mtypes)
 |   +-- add                              # stdin: a `Boundary` block with one `in:` or `out:` entry
 |   +-- remove <INDEX> --direction in|out --confirm
-+-- header
-    +-- set <KEY> <VALUE>                # upsert one extension header (e.g. design, plan)
-    +-- remove <KEY> --confirm
++-- header                               # ALL kinds (.mspec / .march / .mtypes)
+|   +-- set <KEY> <VALUE>                # upsert one extension header (e.g. design, plan, default-edge-type)
+|   +-- remove <KEY> --confirm
++-- mask [--dry-run] [--base-fingerprint <HEX>]   # ALL kinds, kind-dispatched; stdin: JSON merge-mask
 ```
 
 **`rule add`** — pipe a bare `Rule R<n> [chip]` block on stdin (no `lang:`/`spec:` header needed; the parser accepts standalone rule blocks). The rule ID in the body becomes the identifier; it must not collide with an existing rule. Model the dotted `Rule R<n>.short-name [status]` convention — the `.short-name` suffix is optional but recommended (a stable mnemonic alongside the numeric ID, which is what the dispatcher keys on).
@@ -436,11 +443,61 @@ mast spec patch my-spec boundary remove 1 --direction in --confirm    # the seco
 mast spec patch my-spec boundary remove 0 --direction out --confirm   # the first `out:` entry
 ```
 
-**`header set <KEY> <VALUE>` / `header remove <KEY> --confirm`** — typed upsert and removal of **extension** headers (notably `design:` / `plan:`) without round-tripping the whole file. `set` replaces an existing value in place; `remove` is idempotent when the key is absent but, being destructive, still requires `--confirm` (per `cli-api-contract` R13). Core headers (`spec`, `title`, `status`, `version`) are not extension headers — change those through write mode.
+**`header set <KEY> <VALUE>` / `header remove <KEY> --confirm`** — typed upsert and removal of **extension** headers (notably `design:` / `plan:`) without round-tripping the whole file. Works on **all three kinds** — `.mspec`, `.march`, and `.mtypes` (this is the one patch branch that is not `.mspec`-only). `set` replaces an existing value in place; `remove` is idempotent when the key is absent but, being destructive, still requires `--confirm` (per `cli-api-contract` R13). Core headers (`spec`, `title`, `status`, `version`) are not extension headers — change those through write mode (`.mspec`) or `mask` (any kind).
 
 ```bash
-mast spec patch my-spec header set design docs/my-spec-design.md
-mast spec patch my-spec header remove design --confirm
+mast spec patch my-spec    header set design docs/my-spec-design.md   # .mspec
+mast spec patch my-march   header set design docs/my-march-design.md  # .march — same branch
+mast spec patch my-mtypes  header set default-edge-type Connects      # .mtypes — sets the default edge type
+mast spec patch my-spec    header remove design --confirm
+```
+
+**`mask` — kind-dispatched JSON merge-patch (write `.march`/`.mtypes`, or batch a `.mspec`).** `mask` reads a JSON merge-mask object on stdin and routes by detected kind to `patchSpec` (`PatchInput`), `patchMarch` (`MarchPatchInput`), or `patchMtypes` (`MtypesPatchInput`). Because `rule`/`boundary` are `.mspec`-only, **`mask` is the only patch path that can write `.march` and `.mtypes` content**. Every mask field carries a default, so omit what you don't touch; an all-empty mask is rejected (`EmptyMask`). Scalars wrap as `{"set": <value>}` (or `{"clear": true}`); keyed-leaf collections are arrays of `{<key>, <…>Text, delete}` entries, where the entry text is the **block-wrapped** snippet for that construct. Newlines inside JSON strings must be escaped (`\n`).
+
+Mask field shapes per kind (camelCase, as on the wire):
+
+| Kind | Top-level mask fields | Collection entry shape |
+|------|-----------------------|------------------------|
+| `.mspec` | `title`/`status`/`version` (scalars), `design`/`plan` (header scalars), `boundaryIn`/`boundaryOut` (string-lists), `rules`, `invariants`, `defines` | `rules`: `{id, ruleText, delete}` (text = a bare `Rule R<n>` block); `defines`: `{name, value, delete}` |
+| `.march` | `components`, `edges` | `components`: `{id, componentText, delete}` (text = a top-level component decl, e.g. `adapter Foo\n  port: run`); `edges`: `{id, edgeText, delete}` (text = an `Edges` block with one `edge <id>: A -[Type]-> B`) |
+| `.mtypes` | `edgeTypes`, `componentTypes` | `edgeTypes`: `{name, edgeTypeText, delete}` (text = an `EdgeTypes` block with one `edge-type <Name>\n  semantics: …`); `componentTypes`: `{name, componentTypeText, delete}` (text = a `ComponentTypes` block with one `component-type <name>\n  description: …`) |
+
+Per-kind write template — `create` then `mask`-patch (the working pattern for authoring a `.march` and a `.mtypes`):
+
+```bash
+# .march: scaffold, then add two components and an edge between them in one mask
+mast spec create checkout-arch --kind march --title "Checkout architecture"
+printf '%s' '{"components":[
+  {"id":"CheckoutSvc","componentText":"service CheckoutSvc\n  port: charge\n"},
+  {"id":"LedgerDB","componentText":"repository LedgerDB\n  port: write\n"}],
+ "edges":[{"id":"e1","edgeText":"Edges\n  edge e1: CheckoutSvc -[Writes]-> LedgerDB\n"}]}' \
+  | mast spec patch checkout-arch mask
+
+# .mtypes: scaffold, then declare an edge-type and a component-type
+mast spec create checkout-types --kind mtypes --title "Checkout vocabulary"
+printf '%s' '{"edgeTypes":[{"name":"Writes","edgeTypeText":"EdgeTypes\n  edge-type Writes\n    semantics: a data-flow write to a downstream store\n"}],
+ "componentTypes":[{"name":"service","componentTypeText":"ComponentTypes\n  component-type service\n    description: long-running request/response daemon\n"}]}' \
+  | mast spec patch checkout-types mask
+```
+
+A `.mspec` `mask` works the same way — use `printf '%s'` (not `echo`, whose `\n` handling varies by shell) so the escaped newlines reach the parser as JSON `\n` rather than raw control bytes:
+
+```bash
+printf '%s' '{"title":{"set":"New Title"},"rules":[{"id":7,"ruleText":"Rule R7.x [pending]\n  Given a\n  Then b\n"}]}' \
+  | mast spec patch my-spec mask
+```
+
+For single-construct `.mspec` edits the `rule`/`boundary`/`header` branches above are more direct.
+
+**CAS and dry-run.** `mask` supports compare-and-swap and preview, neither of which the typed `rule`/`boundary` branches expose:
+
+- `--dry-run` prints the formatted post-patch preview plus a `baseFingerprint:` line **without writing** — use it to inspect the result before committing the edit.
+- `--base-fingerprint <HEX>` gates the write: if the file's current fingerprint differs, the patch is rejected (`baseline mismatch -- spec changed since read (expected …, found …)`) and nothing is written — last-writer-wins protection for concurrent edits. Obtain the fingerprint from `mast spec read <id> --format json` (its `fingerprint` field). Omitting `--base-fingerprint` means last-writer-wins.
+
+```bash
+FP=$(mast spec read checkout-arch --format json | jq -r .fingerprint)
+printf '%s' '{"components":[{"id":"CheckoutSvc","delete":true}]}' \
+  | mast spec patch checkout-arch mask --base-fingerprint "$FP"   # rejected if the file moved since the read
 ```
 
 **Render.** The patch op runs the in-memory pipeline and writes atomically. **Round-trip property:** `rule add` of R<n> followed by `rule remove` R<n> `--confirm` yields a file byte-identical to the pre-add state; same for boundary add+remove of the same per-direction index. On failure: file on disk unchanged, diagnostics on stderr, exit code non-zero (`2` for parse errors, `1` for everything else per `cli-api-contract` R7). Read stderr, fix the input, retry — the patch never leaves partial state on disk.

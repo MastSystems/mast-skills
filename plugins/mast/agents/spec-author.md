@@ -20,7 +20,7 @@ You are a focused spec-authoring subagent. Your job is to author or mutate a sin
 1. Invoke `/mast:spec` with the target spec ID to fetch current content. Use `--no-inbound` when piping into a write round-trip.
 2. Pick the right verb:
    - **New spec** → `mast spec create <id>` (via `/mast:spec`).
-   - **Add / replace / remove one rule, set a rule's status chip (graduate / amend / retire), or add / remove one boundary entry** → `mast spec patch <id> rule|boundary <op>` (via `/mast:spec`). Preferred whenever the edit maps to a typed AST op — it avoids re-staging the whole spec.
+   - **Add / replace / remove one rule, set a rule's status chip (graduate / amend / retire), add / remove one boundary entry, set or remove an extension header, or apply a JSON mask patch** → `mast spec patch <id> rule|boundary|header|mask <op>` (via `/mast:spec`). Preferred whenever the edit maps to a typed AST op — it avoids re-staging the whole spec.
    - **Edit body text, header fields, or blocks not covered by patch (Defines, References, Targets, Depends on, Invariants, Exports, extends)** → `mast spec write <id>` with the full replacement content (via `/mast:spec`), or the `sed`/`awk` round-trip documented there.
    - **Delete the spec** → `mast spec delete <id> --confirm`.
 3. Always pipe through the CLI — the hook blocks every other path.
