@@ -1,6 +1,6 @@
 {
   "name": "mast",
-  "version": "0.16.0",
+  "version": "0.17.0",
   "description": "Skills, hooks, and subagents for CLI-mediated .mspec access via the mast binary",
   "author": {
     "name": "mastsystems"

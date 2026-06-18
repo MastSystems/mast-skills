@@ -81,9 +81,12 @@ test -f package.json && echo "PROJECT_TYPE=node"
 test -f go.mod && echo "PROJECT_TYPE=go"
 test -f pyproject.toml && echo "PROJECT_TYPE=python"
 test -f pom.xml && echo "PROJECT_TYPE=java"
+
+# 6. Onboarding phase + next command -- also flags whether AGENTS.md is mast-aware
+mast doctor 2>/dev/null || echo "DOCTOR_UNAVAILABLE"
 ```
 
-**Render.** Record the results. You need five facts: config exists (yes/no), spec count, domain count, and constitution count (numbers), and project type (for later context). Note that the domain probe (`mast list domains --count`) is a proxy for `.march` presence -- domains approximate `.march` files but are not strictly 1:1, so treat a non-zero count as "architecture layer present," not an exact file count.
+**Render.** Record the results. You need five facts: config exists (yes/no), spec count, domain count, and constitution count (numbers), and project type (for later context). Note that the domain probe (`mast list domains --count`) is a proxy for `.march` presence -- domains approximate `.march` files but are not strictly 1:1, so treat a non-zero count as "architecture layer present," not an exact file count. `mast doctor` is the authoritative onboarding-state probe: it names the phase (e.g. `P1 (Initialized)`), lists findings -- notably `AGENTS.md lacks the mast sentinel zone -- mast context onboard` whenever the project's AGENTS.md is not yet mast-aware -- and prints the single `Next:` command. Whenever that finding is present, make sure the chosen path ends by running the AGENTS.md onboarding step (`mast context onboard` then `mast context render`); a project is not fully onboarded until its AGENTS.md carries the rendered zone.
 
 **Budget.** Silent. Emit no narration during detection; the first user-facing output is the Phase 2 routing question.
 
@@ -231,7 +234,16 @@ EOF
 
 **Step 5 -- Verify.** Run `mast lint check .`. If it passes: "Your first spec passes all checks. The CLI parsed it, ran lint validators, and verified cross-spec references -- the same pipeline CI runs on every PR."
 
-**Step 6.** Hand off: "Use `/mast:spec` to add more rules, `/mast:mine` to draft specs from code, `/mast:check` before pushing."
+**Step 6 -- Wire mast into AGENTS.md (do not skip).** So every agent on this project discovers the corpus, insert and fill the mast-managed zone in the project's `AGENTS.md`:
+
+```bash
+mast context onboard    # inserts the <!-- MAST:BEGIN --> ... <!-- MAST:END --> sentinel zone (idempotent)
+mast context render     # fills the zone with the corpus TOC + a "how to use the mast CLI" section
+```
+
+Then commit the regenerated `AGENTS.md`. Content outside the sentinel markers is never touched. The rendered zone tells future agents to drive everything through `mast spec read|write|patch` and to discover commands via `mast <command> --help` -- which is how a teammate or agent who has only the binary learns the corpus. From now on, re-run `mast context render` after any corpus-changing write (`mast lint ci .` rejects a drifted zone); `--check` on either command classifies drift without writing.
+
+**Step 7.** Hand off: "Use `/mast:spec` to add more rules, `/mast:mine` to draft specs from code, `/mast:check` before pushing."
 
 **Budget.** One command per step; under two minutes end-to-end.
 
@@ -239,7 +251,7 @@ EOF
 
 **Goal:** Hand the user off to mining with the right expectation.
 
-**Gather + Render.** If no `mast.toml` exists, run `mast spec init` first. Then explain: "Mining reads your code structure and proposes specs. It does not write directly -- you review a proposal and decide what to keep." Hand off to `/mast:mine`.
+**Gather + Render.** If no `mast.toml` exists, run `mast spec init` first. Then explain: "Mining reads your code structure and proposes specs. It does not write directly -- you review a proposal and decide what to keep." Hand off to `/mast:mine`. Once mining has landed an approved corpus, finish onboarding by wiring AGENTS.md -- `mast context onboard` then `mast context render` (Quick start step 6) -- so the new corpus is visible to every agent on the project.
 
 **Budget.** Two sentences plus the hand-off.
 
@@ -258,6 +270,10 @@ EOF
 **Render.** After any path completes, always show this card:
 
 ```
+Where am I / what next:
+  mast doctor                                  -- onboarding phase + the single next command
+  mast context onboard && mast context render  -- make this project's AGENTS.md mast-aware (do this once)
+
 Your mast skills:
 
   /mast:spec    -- read, write, or patch any spec (daily driver)

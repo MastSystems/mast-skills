@@ -48,7 +48,7 @@ What `spec` adds on top of that doctrine is the **authoring-side mapping** — w
 | Role | Extension | One file = one ... | Owns |
 |---|---|---|---|
 | **Feature** | `.mspec` | feature or sub-feature | Rules (Given/When/Then + MUST/SHOULD/MAY), `Invariant I<n>` entries, lifecycle (`status`), `Depends on`, `Compliance` blocks, code anchors via `Targets` |
-| **Architecture** | `.march` | **domain** | Components (with `port:` / `expose:` / `extends`), `Edges` (typed `A -[type]-> B`), `roots:`, `Compliance` blocks |
+| **Architecture** | `.march` | **domain** | Components (with `port:` / `expose:` / `extends`), `Edges` (labeled + typed + proven: `edge <name>: A -[type]-> B @file=...`), `roots:`, `Compliance` blocks |
 | **Type vocabulary** | `.mtypes` | **the project's edge-type alphabet** | `EdgeTypes` (`edge-type <name>` with `transport:` / `protocol:` / `direction:` ...), `ComponentTypes`, optional `default-edge-type:` header |
 
 **On layer numbering.** `lang-march`'s Define block labels `.mspec` content "L7" and `.march` content "L6", reserving "L5" for a future `.minfra` infrastructure layer out of scope today. The `.mtypes` file is L6's type-vocabulary companion — it lives alongside `.march` but carries no components or edges of its own.
@@ -69,29 +69,29 @@ version: 2
 
 uses { component:OrderService, component:PaymentGateway } from orders-domain
 
-Depends on
-  payments-contract >= 1
+Targets
+  $authorize @file=src/service.rs#authorize_charge
 
 Define
-  cart: the customer's current shopping cart , prior to authorization
+  cart: the customer's current shopping cart prior to authorization
 
 Boundary
   in: cart submission , payment authorization , order finalization
   out: shipping , fulfillment , refunds
 
 Invariant I1.idempotent-charge [active]
-  no cart is ever authorized more than once for the same Idempotency-Key
+  no cart is authorized more than once for the same Idempotency-Key
 
-Rule R1.authorize-charge [active $checkout_route orders.PaymentGateway.authorize]
-  Given the customer submits {cart} via {orders.OrderService}
+Rule R1.authorize-charge [active $authorize]
+  Given the customer submits {cart} via {OrderService}
   When the cart total is non-zero
-  Then {orders.PaymentGateway} authorizes the charge
+  Then {PaymentGateway} authorizes the charge
     MUST status_code: the response code MUST be 200 on success
     MUST idempotency: the request MUST carry an Idempotency-Key header
-    SHOULD logging: a structured event SHOULD be emitted on every authorization
+    success.authorized_once: a cart totalling `4200` cents authorizes exactly once
 ```
 
-Every claim is **behavioral**. The `{orders.OrderService}` / `{orders.PaymentGateway}` placeholders *name* architecture components without redefining their structure — that lives in the `.march`. The `uses { component:... } from <domain>` line is the only cross-layer wiring statement (no `Imports` block in mast/3 — REF-FILEKINDS). The `{domain.Component[.port]}` placeholder-resolution order (step 0 reserved `success`/`invariant` prefixes → step 1 `uses` imports → step 2 local `Define` table) is shared doctrine — see **REF-FILEKINDS**. Invariants are first-class `Invariant I<n>` entries in the rules section — there is no `Invariants` preamble block. The rule's status chip can mix component refs (`orders.PaymentGateway.authorize`) and file anchors (`$checkout_route`).
+This body is **lint-verified** (it writes clean through `mast spec write --lint`; the `.march` and `.mtypes` below complete the corpus). Every claim is **behavioral**. The `{OrderService}` / `{PaymentGateway}` placeholders *name* architecture components — brought into scope by the `uses` line — without redefining their structure, which lives in the `.march`. Resolve placeholders by **bare** component name; the dotted `{orders.OrderService}` form does **not** resolve (the prefix would have to equal the spec ID `orders-domain`, not `orders`). The `uses { component:... } from <domain>` line is the only cross-layer wiring statement (no `Imports` block in mast/3 — REF-FILEKINDS). The placeholder-resolution order (step 0 reserved `success`/`invariant` prefixes → step 1 `uses` imports → step 2 local `Define` table) is shared doctrine — see **REF-FILEKINDS**. Invariants are first-class `Invariant I<n>` entries in the rules section — there is no `Invariants` preamble block. A load-bearing anchor rule: an `[active]`/`[amended]` rule's chip **must** carry at least one `$`-anchor declared in `Targets`/`References` and pointing at an existing file (a `Code` anchor); a `[pending]` rule's chip carries **none** (see the anchor/status rules below).
 
 **Architecture (`.march`, L6) — answers "what's wired to what, and through what?"**
 
@@ -100,22 +100,19 @@ spec: orders-domain
 title: Order management and payment authorization
 status: active
 version: 1
-roots: orders/
+roots: src/
 
 library OrderService
   port: http
-  expose: api.orders
 
 gateway PaymentGateway
   port: https
-  expose: api.payments
 
 Edges
-  edge e1: OrderService -[Connects]-> PaymentGateway @file=orders/service.rs#charge
-  edge e2: OrderService -[Reads]-> inventory.Catalog @file=orders/service.rs#lookup
+  edge e1: OrderService -[Connects]-> PaymentGateway @file=src/service.rs#authorize_charge
 ```
 
-Zero behavior. Pure **topology** — which components exist, which ports they expose, which edges connect them under which edge-type. Component types (`library`, `gateway`) and edge-type names (`Connects`, `Reads`) refer to entries in the project's `.mtypes`; edge-type names match declared `.mtypes` entries exactly and are **Capitalized by corpus convention**. Empty brackets `-[]->` fall back to the `.mtypes` `default-edge-type`. Cross-domain edges name the foreign component directly (`inventory.Catalog`). Edges may carry an `@file=path#sym` anchor and optional debt annotations (`!bypass`, `!dep-inversion`, `!dup-path`, `!overreach`, `!debt`) with an optional `(ack|pending|resolved)` status. The march-typing surface (keyword-position component kinds, the retired suffix form, `composes:` rules) is shared doctrine — see **REF-IDIOMS**.
+Zero behavior. Pure **topology** — which components exist, which ports they expose, which edges connect them under which edge-type. **Every edge needs a label** (`edge <name>:` — omitting it is a parse error) **and a proof** — an `@file=path#sym` anchor or a `note: ...`; an edge with neither warns, and a self-connection (`A -[..]-> A`) is an error. Component types (`library`, `gateway`) and edge-type names (`Connects`, `Reads`) refer to entries in the project's `.mtypes`; edge-type names match declared `.mtypes` entries exactly and are **Capitalized by corpus convention**. Empty brackets `-[]->` fall back to the `.mtypes` `default-edge-type`. **Cross-domain edges import first, then name the bare component** — declare `uses { component:Catalog } from inventory-domain` (the `uses` line goes **after** the header fields — including `roots:` — and **before** the component declarations), then write `edge e2: OrderService -[Reads]-> Catalog @file=...`; the dotted `inventory.Catalog` is rejected (`no local component named "inventory.Catalog"`). The `expose:` value is a typed `<localComponent>.<port>` reference resolved against this domain — not a free label — so author it only when a component re-exports a subcomponent's port (`expose: api.orders` errors unless a local component `api` with port `orders` exists). Edges may carry optional debt annotations (`!bypass`, `!dep-inversion`, `!dup-path`, `!overreach`, `!debt`) with an optional `(ack|pending|resolved)` status. The march-typing surface (keyword-position component kinds, the retired suffix form, `composes:` rules) is shared doctrine — see **REF-IDIOMS**. To change a `.march` / `.mtypes` **core header** (`status`, `title`, `version`), round-trip the whole file through `spec write` — `mask` has no `status` field and `header set` only upserts extension headers. (Like cross-spec link errors, a bad `expose:` or edge endpoint surfaces only under `mast lint check` or `spec write --lint`, not on a plain `mask`/`write`.)
 
 **Type vocabulary (`.mtypes`) — answers "what kinds of edges does this project's architecture use?"**
 
@@ -141,7 +138,7 @@ ComponentTypes
   component-type adapter
 ```
 
-Zero edges, zero rules — just the alphabet: edge-type names (Capitalized by corpus convention) and the component-type vocabulary `.march` files draw from. **Exactly one `.mtypes` per project**; multiple files emit `imports/duplicate-mtypes` at error severity.
+Zero edges, zero rules — just the alphabet: edge-type names (Capitalized by corpus convention) and the component-type vocabulary `.march` files draw from. **Exactly one `.mtypes` per project**; a second `.mtypes` file errors: `more than one .mtypes file in project; canonical is "..."`.
 
 ### Detection commands — verifying layer hygiene
 
@@ -153,8 +150,8 @@ Run these after any cross-layer edit to confirm nothing leaked. The bleed taxono
 | `mast describe domain <domain-id>` | The components in a domain, the domains it connects out to, and the domains that connect into it. Empty component list + non-empty file = content is misshaped. |
 | `mast describe component <domain>.<component>` | The component's ports, exposes, inbound/outbound connections. Verifies the structural shape one component at a time. |
 | `mast list domains \| components \| connections \| edge-types` | Full enumeration per facet. Use `--count` for a bare integer (CI gates). |
-| `mast graph <domain>.<component> --edge connects` | Walk the typed connection graph rooted at a component; `--direction in\|out` controls traversal. Cross-domain edges name the foreign component directly. |
-| `mast lint check .` | Per-file lint + linker resolve over the whole corpus. Surfaces `imports/file-not-found`, `imports/unknown-entity`, `imports/wrong-kind`, `imports/unused-alias`, `edge-type-undeclared`, and friends. |
+| `mast graph <domain>.<component> --edge connects` | Walk the typed connection graph rooted at a component; `--direction in\|out` controls traversal. The walk follows cross-domain connections transparently across domain boundaries. |
+| `mast lint check .` | Per-file lint + linker resolve over the whole corpus. Surfaces `undeclared-import`, `uses/unknown-kind`, `import/unresolved-component`, `file-ref-path-missing`, `edge-type-undeclared`, and friends. |
 | `mast describe governance-for <path>` | Which domain governs a file path via `roots:` prefix matching, and what constitution/tier/compliance state applies. |
 | `mast list constitutions` | All constitution specs with tier counts and per-domain certification status. |
 
@@ -162,7 +159,7 @@ Run these after any cross-layer edit to confirm nothing leaked. The bleed taxono
 
 What governance *is* — the constitution `kind:` + `Tiers` monotonic-superset rule, the `Compliance` block with `enforces:` / `certified:` / `pending:` / `waive:`, the certified=error / pending=warn / waive=info severities, and the forward-only ratchet — is shared doctrine, see **REF-GOVERNANCE**. What follows is the `spec`-specific *how-to-author-it*: the CLI steps, syntax, and round-trip discipline. (The mast/2 standalone `enforces:` header and the `certify-<C>:` / `pending-<C>:` / `waive-<C>:` headers are **retired** — the tier and per-rule state now live inside a `Compliance <constitution>` block, one block per constitution, multiple blocks allowed.)
 
-**`roots:` headers** — directory prefixes the domain owns (one per line, trailing `/` required, pure string prefix matching, no globs):
+**`roots:` headers** — directory prefixes the domain owns (one per line, trailing `/` required, pure string prefix matching, no globs). **`roots:` must be disjoint across domains** — two domains claiming the same prefix fail with `roots overlap: ... each source file must map to at most one domain`:
 
 ```march
 roots: lint/
@@ -249,7 +246,7 @@ Inbound is **on by default**: the outbound relationships (`References`, `Targets
 
 Flags compose — each appends its section in declaration order. Unknown spec IDs exit 1 with a diagnostic on stderr. **"Is this spec ready to start?"** is answered directly by `--with-blocked-by` (per `projection-schema` R2 `blocked_by_semantics`): an empty list means every transitive dependency and parent is `active`; a non-empty list names each blocker with its status, so you can tell a small gap (`status=pending`, just needs graduating) from a substantial one (`status=draft`, design unresolved).
 
-For `.march` / `.mtypes` content, query via list/describe/graph (by domain ID, component name, or edge-type name) — `spec read` is `.mspec`-only by `spec:` ID:
+For `.march` / `.mtypes` content, the richer query surface is list/describe/graph (by domain ID, component name, or edge-type name). `spec read <id> --no-inbound` **also** renders a `.march` / `.mtypes` body by `spec:` ID — handy for learning their grammar by example — but it carries no architecture-layer augmentations, so use the projections below to actually query the topology:
 
 ```bash
 mast list domains | components | connections | edge-types     # each: `--count` (bare int), `--root <path>`, + cli-api-contract global flags
@@ -273,7 +270,16 @@ Each list facet maps to a file kind — `list domains` enumerates every `.march`
 
 ### Mode: Write
 
-Create or update a `.mspec`, `.march`, or `.mtypes` through the CLI. Spec IDs must match `^[a-z0-9][a-z0-9-]*$`; anything else exits 1 before any filesystem work. The unified parser handles all three kinds (inferred from extension — no `lang:` header). Use `write` for structural or multi-construct changes, and for any mast/3 construct without a typed patch op (Compliance blocks, `Invariant I<n>` entries, `uses` imports, `Tiers`) — round-trip the whole file.
+Create or update a `.mspec`, `.march`, or `.mtypes` through the CLI. Spec IDs must start with a lowercase letter, then `[a-z0-9-]` (`^[a-z][a-z0-9-]*$`); a leading digit, `_`, or uppercase exits 1 before any filesystem work (`invalid spec ID "9bad": must not start with a digit`). The unified parser handles all three kinds (inferred from extension — no `lang:` header). Use `write` for structural or multi-construct changes, and for any mast/3 construct without a typed patch op (Compliance blocks, `Invariant I<n>` entries, `uses` imports, `Tiers`) — round-trip the whole file.
+
+**Discovering the grammar (no source access needed).** You cannot learn body syntax from `spec read` — it renders a normalized view, and freshly-created scaffolds are header-only. Instead:
+
+- **`mast spec write --help`** prints a minimal valid `.mspec` body plus the load-bearing gotchas (preamble block order, anchor rules) — the canonical shape to adapt. The minimal lint-clean trio is also embedded above under "worked examples".
+- **Parse rejections report `line N col M`** (e.g. `parse error: line 9 col 1: block "Targets" is out of order`) — fix at that position and re-run. The error *class* flips between a structural `parse error` and a semantic `anchor $x is not declared in References or Targets`, so when stuck, probe **both** the grammar and the anchor declarations.
+- **`mast internal debug <file>`** (a hidden, unstable dev tool) prints a parsed AST as an S-expression, but it parses **every input as `.mspec`** regardless of extension — so it only helps for `.mspec` content (point it at an existing `.mspec`, or stage a candidate body to a `.txt`). For `.march` / `.mtypes`, get located errors from `spec write` / `spec patch mask` directly: those infer the kind from the file and report `line N col M` too.
+- **`mast spec create <id> --kind mspec|march|mtypes`** scaffolds a header-only skeleton; create as `draft`/`pending`, never `--status active` (an empty active scaffold fails lint).
+- **Learn by example** from a populated peer: `mast spec read <id> --no-inbound` round-trips a real body you can copy the shape from.
+- **`@file=path#sym` validates the symbol exists** but nothing finds it for you — `grep` the codebase for the symbol first, and resolve `@file=` paths from the **mast root**, not the domain's `roots:`.
 
 **Gather.** Decide create vs. update, and assemble the full file content.
 
@@ -292,7 +298,7 @@ mast spec create user-domain --kind march --title "User-management domain"
 
 mast spec create project-vocab --kind mtypes --title "Project edge-type vocabulary"
 # produces <specs_dir>/project-vocab.mtypes with an empty EdgeTypes block
-# exactly ONE .mtypes per project; duplicates emit imports/duplicate-mtypes at error severity
+# exactly ONE .mtypes per project; a second one errors: "more than one .mtypes file in project"
 # optional default-edge-type: <name> header lets .march edges use empty brackets -[]->
 ```
 
@@ -304,7 +310,7 @@ ls mspec.schema 2>/dev/null || find . -maxdepth 3 -name mspec.schema
 
 Supported extension types: `text`, `integer`, `enum`, `spec-ref`, `spec-constraint`. Cardinality: `single` (default) or `multiple` (comma-split list). Extension keys must be lowercase and not collide with core keys. `design:` and `plan:` are `text`/single extension fields whose values are relative paths under `docs_dir`; the linter checks the file exists, and an active spec carrying either emits a stale-design warning.
 
-**Anchoring a `[pending]` spec when the code does not exist yet.** mast/3 removed the `[pending]`-status skip for `Code` anchors — a `$anchor @file=...` pointing at a not-yet-written source file now produces a lint error even on a `[pending]` spec. The only way to express "not yet built" is a **Design** (or **Plan**) anchor (the anchor ratchet — REF-LIFECYCLE). Scaffold the `Targets` block with a `*-design.md` anchor under `docs_dir` and reference it from the rule chip:
+**Anchoring a `[pending]` spec when the code does not exist yet.** mast/3 removed the `[pending]`-status skip for `Code` anchors — a `$anchor @file=...` pointing at a not-yet-written source file produces a cross-spec link error (`@file= path does not exist`) under `--lint` / `mast lint check` even on a `[pending]` spec (a plain write still lands the file). Express "not yet built" with a **Design** (or **Plan**) anchor in the `Targets` block: a `*-design.md` / `*-plan.md` path under `docs_dir` (the file must exist). The `[pending]` rule chip stays **bare** — a pending rule carrying any `$`-anchor in its chip is rejected (`rule status [pending] must not have code anchors`), so the design anchor lives in `Targets` only, unreferenced by the chip. Add an `open:` marker to each rule (a pending spec with rules but no `open:` markers warns):
 
 ```bash
 mast spec write checkout-flow <<'EOF'
@@ -317,10 +323,11 @@ design: docs/checkout-flow-design.md
 Targets
   $design_ref @file=docs/checkout-flow-design.md#authorization
 
-Rule R1.authorize-charge [new $design_ref]
+Rule R1.authorize-charge [pending]
   Given the customer submits a non-empty cart
   Then the charge is authorized exactly once
     MUST idempotency: the request MUST carry an Idempotency-Key header
+    open: harvested intent; code not yet written
 EOF
 ```
 
@@ -406,26 +413,29 @@ EOF
 mast spec patch my-spec rule remove 5 --confirm
 ```
 
-**`rule set-status <RULE_ID> --status ... [--anchor ...]`** — update only the rule's status chip and code anchors without touching the body. This is the typed equivalent of "graduate R<n>", "amend R<n>", "retire R<n>".
+**`rule set-status <RULE_ID> --status ... [--anchor ...]`** — update only the rule's status chip and its anchor bindings without touching the body (the typed equivalent of "graduate / amend / retire R<n>"). **`--anchor` takes a `$name` already declared in `Targets`/`References` — not a raw code symbol**; the full flag surface and the graduation ratchet are in `mast spec patch rule set-status --help`.
 
 ```bash
-mast spec patch my-spec rule set-status 5 --status active --anchor handle_form --anchor validate_email
+# Targets already declares `$authorize @file=src/service.rs#authorize_charge`:
+mast spec patch my-spec rule set-status 5 --status active --anchor authorize
 mast spec patch my-spec rule set-status 5 --status amended
 ```
 
 When the last `[pending]` rule in a `[pending]` spec is set to `[active]` (or any non-pending status), the spec-level status **auto-flips** from `[pending]` to `[active]` in the same atomic write. Other rule mutations (add/update/remove) do NOT auto-flip — only `set-status` does, per `spec-access` R10.
 
-**Design and Plan anchors block graduation** (the ratchet — REF-LIFECYCLE). `graduate()` rejects any rule whose targets include anchors where `blocks_graduation()` holds — `AnchorKind::Design` (`*-design.md`) or `AnchorKind::Plan` (`*-plan.md`) — via `GraduateError::DesignDocAnchors` (exit non-zero, file unchanged). `Code`, `Context`, `Skill`, and `Doc` anchors all permit graduation. So before you `set-status <id> --status active` a rule still carrying a design/plan anchor, swap in the real code anchor in the same invocation. Concretely, if asked to "graduate R3" and R3 still binds `$design_ref @file=docs/checkout-flow-design.md#authorization`:
+**Design and Plan anchors block graduation** (the ratchet — REF-LIFECYCLE). An `[active]`/`[amended]` rule whose chip references a `*-design.md` / `*-plan.md` anchor is rejected at link time: `active rule R<n> has design/plan anchor <path>; graduate to code anchor`. `Code`, `Context`, `Skill`, and `Doc` anchors all permit graduation. So to graduate a rule still bound to a design anchor, first declare the landed **Code** anchor in the `Targets` block (it must point at an existing file), then re-point the chip at it. Concretely, if asked to "graduate R3" and R3's chip still references `$design_ref @file=docs/checkout-flow-design.md#authorization`:
 
 ```bash
-# WRONG -- leaves the Design anchor in place; graduate() returns DesignDocAnchors and writes nothing
-mast spec patch checkout-flow rule set-status 3 --status active
-
-# RIGHT -- replace the design anchor with the landed code symbol, then graduate
-mast spec patch checkout-flow rule set-status 3 --status active --anchor authorize_charge
+# 1. Add the code anchor to Targets via write (the file must exist), e.g.:
+#      Targets
+#        $authorize @file=src/service.rs#authorize_charge
+# 2. Flip the chip to the Targets $name of the CODE anchor (not the symbol):
+mast spec patch checkout-flow rule set-status 3 --status active --anchor authorize
+# 3. Drop the now-stale design: header, else an active-spec warning lingers:
+mast spec patch checkout-flow header remove design --confirm
 ```
 
-When you see the `DesignDocAnchors` error on stderr, do **not** retry the bare command — treat it as a prompt to (1) confirm the code exists, (2) add the `Code` anchor (via `--anchor` here, or by editing the `Targets` block and rule chip through `write`), and (3) re-run with the code anchor attached.
+The chip must end up referencing only the code anchor — leaving the design anchor in an active chip re-triggers the ratchet. When you see `graduate to code anchor` on stderr, treat it as a prompt to (1) confirm the code exists, (2) declare its `Code` anchor in `Targets`, and (3) re-run `set-status` with `--anchor` pointing at that Targets `$name`.
 
 **`boundary add`** — pipe a `Boundary` block with exactly one entry; the `in:` or `out:` prefix sets the direction. Multiple entries in one invocation are rejected — call repeatedly. The new entry is appended in the formatter's source order.
 
@@ -500,7 +510,7 @@ printf '%s' '{"components":[{"id":"CheckoutSvc","delete":true}]}' \
   | mast spec patch checkout-arch mask --base-fingerprint "$FP"   # rejected if the file moved since the read
 ```
 
-**Render.** The patch op runs the in-memory pipeline and writes atomically. **Round-trip property:** `rule add` of R<n> followed by `rule remove` R<n> `--confirm` yields a file byte-identical to the pre-add state; same for boundary add+remove of the same per-direction index. On failure: file on disk unchanged, diagnostics on stderr, exit code non-zero (`2` for parse errors, `1` for everything else per `cli-api-contract` R7). Read stderr, fix the input, retry — the patch never leaves partial state on disk.
+**Render.** The patch op runs the in-memory pipeline and writes atomically. **Round-trip property:** `rule add` of R<n> followed by `rule remove` R<n> `--confirm` yields a file byte-identical to the pre-add state; same for boundary add+remove of the same per-direction index. On failure: file on disk unchanged, diagnostics on stderr, exit code non-zero — `2` for finding-path rejections (parse, lint including weasel words, or non-ascii content) and `1` for user-path errors (unknown spec, ID mismatch, invalid ID, missing `--confirm`), per `cli-api-contract` R7. Read stderr, fix the input, retry — the patch never leaves partial state on disk.
 
 **Budget.** One typed op per construct mutation. When `rule add`/`rule update` introduces or rewrites a constraint, apply the authoring disciplines and high-leverage patterns below; additionally, **if the patched rule realizes a normative claim from another spec, add `Cites <spec>.R<n>`** on its own line under the rule header (the lockfile content-pins it — `Cites` is shared doctrine, see **REF-IDIOMS** / **REF-DEPENDENCIES**). `mast spec patch` runs per-file lint inline, so the diagnostic appears on stderr before the file lands.
 
@@ -613,6 +623,8 @@ These three per-file warnings fire when the patterns above are violated. Treat e
 | `must-with-style-language` | `normative-style-mismatch` | A `MUST`-prefixed constraint contains `prefer`, `preferable`, `preferably`, `ideally`, `favor`, `encourage`, `recommend`, `where possible`, `where feasible`, `where appropriate` | Either remove the recommendation language or downgrade `MUST` to `SHOULD` (or `MAY`) |
 
 Run `mast lint check .` to see them; they are warnings, not errors, but they identify rules an agent will misread.
+
+**One hard error to pre-empt — weasel words.** Distinct from the warnings above, the **weasel-word** validator is an **error** (it blocks the write). It matches any of these at a word boundary, case-insensitive: `should`, `approximately`, `reasonably`, `a few`, `some`, `probably`, `maybe`, `might`, `roughly`, `around`, `about`, `fairly`, `quite`, `generally`, `often`, `usually`, `sometimes`. The trap: the normative keyword **is** the constraint level, so repeating it in the body is banned — `SHOULD logging: a structured event SHOULD be emitted` fails with `weasel word "should" in constraint "logging"`. Write the obligation declaratively: `SHOULD logging: a structured event is emitted on every authorization`.
 
 ## Style rules
 

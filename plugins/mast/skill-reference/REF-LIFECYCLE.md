@@ -48,7 +48,11 @@ at least one **code anchor**.
 linter checks the anchored `*-design.md` / `*-plan.md` file actually exists, not
 merely that the `design:` / `plan:` header is present. So a `[pending]` rule carrying a
 design anchor is healthy, but a dangling design anchor (pointing at a missing file)
-is still flagged.
+is still flagged. **The anchor lives in the `Targets`/`References` block; the
+`[pending]` rule's chip stays bare** — referencing any `$`-anchor from a `[pending]`
+chip is rejected (`rule status [pending] must not have code anchors`). Graduation
+adds the code-anchor `$name` to the chip (`[active $code]`) and drops the `design:`
+header.
 
 ## Design→Active supersession (A5)
 

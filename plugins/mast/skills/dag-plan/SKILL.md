@@ -283,7 +283,7 @@ protocol") used without an inline definition, and any appeal to session
 context is a defect.
 
 **Loop handoff (optional).** If the user will drive execution with a recurring
-loop (`/loop` or `mast loop run`), also emit an iteration protocol file
+loop (the `/loop` skill -- there is no `mast loop` CLI command), also emit an iteration protocol file
 (`.mast/loop-<plan-name>.md`): resume from `.mast/dag-plan-state.md`, pick ONE
 eligible item per iteration (parallel lanes only where the plan declares them),
 route spec edits to `/mast:spec` and code to the TDD cycle, checkpoint with the
@@ -781,28 +781,28 @@ mast lint check .
 
 3. Partition rules into three buckets:
 
-   - **Ready to graduate** -- implemented, tested, checkpoint passed. Identify the code anchor (function, struct, module) per rule.
+   - **Ready to graduate** -- implemented, tested, checkpoint passed. Identify the declared Targets/References `$name` for the rule (`--anchor` binds that name, not a raw code symbol).
    - **Needs more work** -- partially implemented or test is incomplete. Note the specific gap.
    - **Blocked** -- waiting on spec amendment or unresolved dependency. Note the blocker.
 
 4. Present the graduation list. Use bare numeric rule IDs.
 
-   **Design/Plan-anchor gate:** Rules whose targets include anchors where `blocks_graduation()` holds (`AnchorKind::Design` for `-design.md`, `AnchorKind::Plan` for `-plan.md` -- see **REF-LIFECYCLE** for the taxonomy) are not graduation-ready. Replace each such anchor with one that passes graduation (`Code`, `Context`, `Skill`, or `Doc`) before running `set-status active` -- `graduate()` rejects these via `GraduateError::DesignDocAnchors`.
+   **Design/Plan-anchor gate:** Rules whose targets include anchors where `blocks_graduation()` holds (`AnchorKind::Design` for `-design.md`, `AnchorKind::Plan` for `-plan.md` -- see **REF-LIFECYCLE** for the taxonomy) are not graduation-ready. Replace each such anchor with one that passes graduation (`Code`, `Context`, `Skill`, or `Doc`) before running `set-status active` -- otherwise the linker rejects the rule: `active rule R<n> has design/plan anchor <path>; graduate to code anchor`.
 
    **Graduation gate:** If running interactively (no `<ralph-context>`
    block in the conversation), do not graduate automatically -- present
    the commands and wait for user approval, then hand off to `/mast:spec`.
    If running inside mast-loop (detectable via the `<ralph-context>`
-   block), graduation follows the loop protocol instead -- emit
-   `mast loop event graduate` per the mast-loop skill contract. (mast-loop
-   is deprecated as a skill; this loop-graduation path applies only if a
-   user wires their own loop.)
+   block), graduation follows the user's loop protocol instead (there is no
+   `mast loop` CLI command -- mast-loop is retired; this path applies only
+   if a user wires their own loop).
 
 ```
 Ready for graduation:
 
-  mast spec patch <spec-id> rule set-status 3 --status active --anchor handle_form --anchor validate_email
-  mast spec patch <spec-id> rule set-status 4 --status active --anchor parse_pr_title
+  # --anchor names a $ref declared in the spec's Targets/References, not a code symbol
+  mast spec patch <spec-id> rule set-status 3 --status active --anchor handler --anchor validator
+  mast spec patch <spec-id> rule set-status 4 --status active --anchor title_parser
 
 Needs more work:
   <spec-id> R5: missing test for the error-path constraint
@@ -1452,7 +1452,7 @@ Critical behavioral constraints. This is the recency-zone summary of what matter
 15. **Diamond deps get pre-phase stubs.** If two parallel specs share a transitive dependency, stub that dependency's interface before parallel work begins.
 16. **Plan invalidation is a state.** If a phase failure or midgame review reveals structural amendments, write PLAN_INVALIDATED and re-plan before continuing.
 17. **Collapse trivial phases.** Consecutive single-spec phases targeting the same crate should be merged.
-18. **mast-loop graduation follows loop protocol.** Check for `<ralph-context>` block; if present, use `mast loop event graduate` instead of waiting for human approval. (mast-loop is deprecated; this path applies only if a user wires their own loop.)
+18. **mast-loop graduation follows loop protocol.** Check for `<ralph-context>` block; if present, follow the user's loop graduation protocol instead of waiting for human approval (there is no `mast loop` CLI command; mast-loop is retired -- this applies only if a user wires their own loop).
 
 ## Style rules
 
