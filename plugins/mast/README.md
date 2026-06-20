@@ -21,6 +21,17 @@ In Claude Code:
 /plugin install mast@mastsystems
 ```
 
+Dogfooding (GitHub Copilot):
+
+In a Copilot chat or the Copilot UI on this repo, run:
+
+```
+/plugin marketplace add mastsystems/mast-skills
+/plugin install mast@mastsystems
+```
+
+This registers the in-repo marketplace and installs the `mast` plugin for your Copilot session; no mirror portal needed.
+
 The first time a skill or hook needs the `mast` binary, the right prebuilt for your host is fetched over the network (SHA-256 verified) and cached — or, offline, it falls back to a local `cargo` build. The plugin also puts a `mast` shim on your `PATH`: the skills run the `mast` commands shown below for you, and you can run them directly too.
 
 - **Supported platforms:** Linux x86-64, macOS Intel, macOS Apple Silicon. Other hosts (ARM Linux, Alpine/musl, Windows) fall back to a local `cargo` build rather than failing silently.

@@ -1,0 +1,33 @@
+spec: ledger
+title: Ledger domain: double-entry transfers, the journal, and idempotency
+status: active
+version: 1
+roots: src/ledger/
+
+uses { component:AccountService } from accounts
+
+Compliance ledger-governance
+  enforces: standard
+  certified: R2, R3
+  pending: R4
+  waive: R1 "integer money is enforced upstream in the shared money kernel"
+
+service TransferService
+  port: transfer
+  expose: TransferService.transfer
+  composes: EntryStore, IdempotencyStore
+
+store EntryStore
+  port: append
+  port: forTransfer
+  expose: EntryStore.append
+
+store IdempotencyStore
+  port: lookup
+  port: remember
+  expose: IdempotencyStore.lookup
+
+Edges
+  edge e1: TransferService -[Persists]-> EntryStore @file=src/ledger/transfer-service.ts#transfer
+  edge e2: TransferService -[Persists]-> IdempotencyStore @file=src/ledger/transfer-service.ts#transfer
+  edge e3: TransferService -[]-> AccountService @file=src/ledger/transfer-service.ts#transfer !overreach

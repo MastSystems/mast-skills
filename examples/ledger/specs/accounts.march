@@ -1,0 +1,27 @@
+spec: accounts
+title: Accounts domain: account lifecycle, balances, and the no-overdraft guard
+status: active
+version: 1
+roots: src/accounts/
+
+Compliance ledger-governance
+  enforces: baseline
+  certified: R1, R2
+
+service AccountService
+  port: open
+  port: balanceOf
+  port: apply
+  expose: AccountService.open
+  expose: AccountService.balanceOf
+  expose: AccountService.apply
+
+store AccountStore
+  port: create
+  port: find
+  port: save
+  expose: AccountStore.create
+  expose: AccountStore.save
+
+Edges
+  edge e1: AccountService -[Persists]-> AccountStore @file=src/accounts/service.ts#apply

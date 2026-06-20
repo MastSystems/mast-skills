@@ -1,0 +1,27 @@
+spec: vocabulary
+title: Project edge-type and component-type vocabulary
+status: active
+version: 1
+default-edge-type: Calls
+
+EdgeTypes
+  edge-type Calls
+    transport: in-process
+    direction: directed
+    description: a component synchronously invokes a method on another component, possibly across a domain boundary
+  edge-type Persists
+    transport: in-process
+    direction: directed
+    description: a service reads or writes entity state through its domain store
+  edge-type Handles
+    transport: http
+    direction: inbound
+    description: an HTTP handler receives a request and delegates to a domain service
+
+ComponentTypes
+  component-type service
+    description: enforces domain invariants and exposes operations to consumers; holds no I/O of its own
+  component-type store
+    description: owns the entity rows for one domain; the only component that touches the persistence primitive
+  component-type handler
+    description: parses inbound transport requests, delegates to services, and maps domain errors to responses

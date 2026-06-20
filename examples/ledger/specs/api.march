@@ -1,0 +1,21 @@
+spec: api
+title: HTTP API: the inbound REST boundary that fronts the domain services
+status: active
+version: 1
+roots: src/http/
+
+uses { component:AccountService } from accounts
+uses { component:TransferService, component:EntryStore } from ledger
+
+handler Api
+  port: accounts
+  port: balance
+  port: transfers
+  expose: Api.accounts
+  expose: Api.balance
+  expose: Api.transfers
+
+Edges
+  edge e1: Api -[Handles]-> AccountService @file=src/http/api.ts#buildApi
+  edge e2: Api -[Handles]-> TransferService @file=src/http/api.ts#buildApi
+  edge e3: Api -[Calls]-> EntryStore note: planned journal-read route fronts EntryStore.forTransfer for the pending read-journal feature; the route is not yet built

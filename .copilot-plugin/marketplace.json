@@ -1,0 +1,11 @@
+{
+  "name": "mastsystems",
+  "owner": { "name": "mastsystems" },
+  "plugins": [
+    {
+      "name": "mast",
+      "source": "./plugins/mast",
+      "description": "Skills, hooks, and subagents for CLI-mediated .mspec access via the mast binary (Copilot)"
+    }
+  ]
+}

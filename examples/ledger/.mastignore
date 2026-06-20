@@ -1,0 +1,12 @@
+# .mastignore -- paths excluded from `mast` spec discovery.
+#
+# One path prefix or glob per line; lines starting with '#' and blank lines
+# are ignored. A trailing '/' matches a directory and everything under it.
+# `mast` walks from this directory and skips anything matched here, so vendored
+# code, build output, and nested mast projects never pollute the corpus.
+#
+# Uncomment or add entries as needed:
+# target/
+# node_modules/
+# vendor/
+# examples/
