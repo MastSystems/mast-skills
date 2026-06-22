@@ -201,14 +201,53 @@ Concrete guardrails — call these out in review:
 > is a refactor you'll keep postponing. The boundary is cheap to hold and
 > ruinous to recover.
 
-### Make illegal states unrepresentable; model values precisely
+### Type-system reflexes
 
-- Use **integers/exact types** where floats lie. The reference `Money` type is a
-  currency tag plus integer minor units — *"floating-point money is a bug
-  waiting to happen."* Carry the same instinct into anything where precision or
-  units matter.
-- Prefer `readonly` fields and immutable data. Construct new values; don't
-  mutate.
+A handful of habits that, once automatic, eliminate whole categories of bug
+before runtime. Reach for these without being asked.
+
+**Algebraic data types — make illegal states unrepresentable.** Model state that
+has distinct shapes as a discriminated union, not a bag of optional booleans:
+
+```ts
+type RemoteData<T, E> =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "error"; error: E }
+  | { status: "ok"; data: T };
+```
+
+You can no longer be `loading` and have `data` at the same time, and the
+compiler forces every consumer to handle each case. This is principle #1 applied
+to types: no ambiguous in-between states.
+
+**Typed IDs — never let a bare `string` stand in for an identity.** A `userId`
+and an `accountId` are both strings, so the compiler will happily let you swap
+them. Brand them so it won't:
+
+```ts
+type UserId = string & { readonly __brand: "UserId" };
+type AccountId = string & { readonly __brand: "AccountId" };
+
+function transfer(from: AccountId, to: AccountId): void { /* ... */ }
+// transfer(userId, accountId) → compile error, as it should be
+```
+
+The same reflex applies to any value that is "a string/number that means
+something specific": `Email`, `Iso8601`, `Money` (below). The unit is part of
+the type.
+
+**Purity — push side effects to the edges.** Keep the core of each module a
+**pure function of its inputs**: no fetching, no clock, no `Math.random`, no
+mutation of arguments. Effects live at the boundary (the API layer, a hook, the
+composition root). Pure cores are trivially testable and trivially moved; in
+React this is exactly why presentational components should be pure functions of
+their props and effects belong in hooks.
+
+**Exact values + immutability.** Use exact types where floats lie — the `Money`
+type is a currency tag plus integer minor units, because *"floating-point money
+is a bug waiting to happen."* Prefer `readonly` fields and immutable data;
+construct new values rather than mutating:
 
 ```ts
 export interface Money {
@@ -225,10 +264,11 @@ export function money(currency: string, minor: number): Money {
 }
 ```
 
-- Use **discriminated unions** for state that has distinct shapes (e.g.
-  `{ status: "loading" } | { status: "error"; error: E } | { status: "ok";
-  data: T }`) instead of a bag of optional booleans. This is principle #1
-  applied to types: no ambiguous in-between states.
+**Single home for every invariant.** (Principle #3, restated as a type reflex:)
+each rule about the data lives in exactly one place — usually a constructor or a
+smart factory like `money()` above — so there's one choke point to enforce it
+and one place to change it. Don't re-validate the same invariant in five call
+sites; make the type impossible to construct in an invalid state.
 
 ### Fail fast, with named errors
 
@@ -319,9 +359,13 @@ Before you call a change done:
 
 - [ ] No hedge words in any contract, doc, or commit message.
 - [ ] Every non-trivial claim has an oracle (a test, a type, a literal).
-- [ ] Each fact lives in one place; nothing is restated, only referenced.
-- [ ] Domain logic is framework-free; React is a thin seam over it.
-- [ ] Values are modeled precisely; illegal states are unrepresentable.
+- [ ] Each fact/invariant lives in one place; nothing is restated, only referenced.
+- [ ] Domain logic is framework-free and pure; React is a thin seam over it.
+- [ ] Illegal states are unrepresentable (ADTs over boolean bags).
+- [ ] Identities and units are typed (branded IDs, exact value types) — no bare
+      `string`/`number` standing in for a meaning.
+- [ ] Layers don't bleed: components import domain types only; DTOs stay in the
+      API layer; the domain model reflects FE usage, not the DB schema.
 - [ ] Inputs validated at the boundary; failures throw named, specific errors.
 - [ ] Dependencies injected (props/context), not reached for as singletons.
 - [ ] Comments explain role and invariants, not mechanics.
