@@ -1,0 +1,24 @@
+spec: ui-kit
+title: UI kit domain: synthetic component inheritance showcase
+status: active
+version: 1
+roots: src/
+
+Compliance style-governance
+  enforces: baseline
+  certified: R1
+
+Compliance a11y-governance
+  enforces: baseline
+  pending: R1
+
+component WidgetBase
+  port: render
+
+component ButtonWidget extends WidgetBase
+  port: click
+  expose: ButtonWidget.click
+
+Edges
+  edge e1: ButtonWidget -[Renders]-> WidgetBase note: synthetic showcase edge !debt
+    reason: the render delegation is asserted for grammar coverage, not mined from real widget code

@@ -17,8 +17,10 @@ It declares governance rules organized into **tiers**:
 - Each tier is a **monotonic superset** of the one below it.
 - Tiers list **rules only** — never invariants.
 
-Concrete example: in `mast-governance` the tiers are `baseline` (R1-R12),
-`standard` (R1-R24), and `extended` (R1-R24) — each a superset of the prior.
+Concrete example: the bundled `examples/ledger` corpus's `ledger-governance`
+constitution declares a `baseline` tier (`R1, R2`), a `standard` tier
+extending it (`baseline + R3, R4`), and a `strict` tier (`R*`, the every-rule
+wildcard) — each tier a superset of the one below.
 
 ## Compliance (A6)
 

@@ -221,7 +221,7 @@ For each phase, identify red-team surfaces:
 - **Exhaustive dispatch points.** Rules requiring handling every variant of an enum or match.
 - **Shared mutable state.** Rules describing concurrent access or atomicity requirements.
 - **Pure-function candidates.** Rules describing multi-dimensional decisions.
-- **Layer-separation constraints.** Rules describing relationships where direct import is forbidden by `build-topology` or `internal/archtest`.
+- **Layer-separation constraints.** Rules describing relationships where direct import is forbidden -- if the project has an architecture/topology spec or an arch-test suite, check the rule against it.
 
 Source risk signals from the specs: `Cites` chains, `Invariant I<n>` entries (now first-class rules-section entries, citable via `Cites <spec>.I<n>`), and `Depends on` density.
 
@@ -248,8 +248,9 @@ Render the plan using the "Plan output template" below. Wait for user approval b
 **Persist the plan as a design doc.** Write the rendered plan to `docs/<spec-id>-plan.md` (lowercase, case-sensitive `-plan.md` suffix; `docs` is the default `docs_dir`, overridable in `mast.toml`). When the target set is a single spec, name the file after that spec; for a multi-spec plan, name it after the root spec of the dependency graph. This file is a `Plan` anchor (`AnchorKind::Plan`) and satisfies `blocks_graduation()` -- so suggest the user add a `plan: docs/<spec-id>-plan.md` header to the spec to link the plan to the spec it implements. The `plan:` header is validated for existence and warns (stale) on active specs, but a `.md` plan anchor is never a parse error. Do not confuse this with `.mast/dag-plan-state.md`, which holds session/transition state, not the plan itself. The plan doc is a derived, disposable projection of the spec graph -- generated from the corpus, never stored beside the rules as normative content. When the corpus changes, regenerate the plan from fresh `mast list` data rather than hand-amending a stale plan doc; the `Plan` anchor blocking graduation is the mechanism that forces the projection to be shed once the work lands.
 
 **Executor hardening (required when execution is delegated).** When the phases
-will be executed by weaker models or an autonomous loop rather than this
-session, the plan doc MUST additionally carry: (1) a **per-item validation
+will be executed by someone other than this session -- subagents (e.g. the
+Agent tool, or any orchestrator that gives executors an isolated checkout),
+weaker models, or a recurring loop -- the plan doc MUST additionally carry: (1) a **per-item validation
 matrix** -- for every work item, the exact verification command and its
 expected output; checkpoints are pasted output, never self-assessment. A row
 MAY carry an item-specific STOP predicate ("if X proves false, stop and
@@ -283,7 +284,7 @@ protocol") used without an inline definition, and any appeal to session
 context is a defect.
 
 **Loop handoff (optional).** If the user will drive execution with a recurring
-loop (the `/loop` skill -- there is no `mast loop` CLI command), also emit an iteration protocol file
+prompt (Claude Code's `/loop` built-in), also emit an iteration protocol file
 (`.mast/loop-<plan-name>.md`): resume from `.mast/dag-plan-state.md`, pick ONE
 eligible item per iteration (parallel lanes only where the plan declares them),
 route spec edits to `/mast:spec` and code to the TDD cycle, checkpoint with the
@@ -535,7 +536,7 @@ For phases with parallel lanes (independent specs targeting different crates), d
 - Access to `/mast:spec` for reading cited specs and upstream contracts
 - Access to `/mast:check` for pre-flight and checkpoint verification
 - Instructions to follow the TDD cycle (Steps 3a-3e) and commit at each checkpoint per version control conventions
-- When the lane runs in an isolated worktree: inline the full plan/brief text (worktrees contain only committed files -- an uncommitted plan doc is invisible there), and expect an install-then-build first step (fresh worktrees lack node_modules/target); that is setup, not a deviation
+- When the executor runs in an isolated checkout (e.g. a git worktree): inline the full plan/brief text (isolated checkouts contain only committed files -- an uncommitted plan doc is invisible there), and expect an install-then-build first step (fresh checkouts lack node_modules/target); that is setup, not a deviation
 
 The main thread merges results at the join point and runs the midgame review if applicable.
 
@@ -653,14 +654,14 @@ mast spec read <cited-spec> --with-rules
 
 For each MUST constraint, write a test that will fail until the implementation is correct. The test name should reference the rule and constraint:
 
-```rust
-// Example: testing ci-gates R4's title_format constraint
-#[test]
-fn r4_title_format_rejects_malformed_prefix() {
-    // Arrange: a PR title that violates the constraint
-    // Act: run the validation
-    // Assert: validation fails with the expected diagnostic
-}
+```ts
+// Example: testing transfer-funds R1's `positive` constraint
+// (examples/ledger -- MUST positive / success.rejects_zero)
+test("r1_positive_rejects_zero_amount", () => {
+  // Arrange: a transfer request for 0 minor units
+  // Act: call TransferService.transfer
+  // Assert: it throws InvalidAmount
+});
 ```
 
 Design principles for tests:
@@ -785,17 +786,16 @@ mast lint check .
    - **Needs more work** -- partially implemented or test is incomplete. Note the specific gap.
    - **Blocked** -- waiting on spec amendment or unresolved dependency. Note the blocker.
 
-4. Present the graduation list. Use bare numeric rule IDs.
+4. Present the graduation list. Use bare numeric rule IDs. Graduate ONLY the rules that are actually ready — partial graduation is safe: the first `set-status ... --status active` on a `[pending]` spec auto-flips the spec to `[active]` in the same write, so never mark unready rules `[active]` just to satisfy the pending-spec linter.
 
    **Design/Plan-anchor gate:** Rules whose targets include anchors where `blocks_graduation()` holds (`AnchorKind::Design` for `-design.md`, `AnchorKind::Plan` for `-plan.md` -- see **REF-LIFECYCLE** for the taxonomy) are not graduation-ready. Replace each such anchor with one that passes graduation (`Code`, `Context`, `Skill`, or `Doc`) before running `set-status active` -- otherwise the linker rejects the rule: `active rule R<n> has design/plan anchor <path>; graduate to code anchor`.
 
-   **Graduation gate:** If running interactively (no `<ralph-context>`
-   block in the conversation), do not graduate automatically -- present
-   the commands and wait for user approval, then hand off to `/mast:spec`.
-   If running inside mast-loop (detectable via the `<ralph-context>`
-   block), graduation follows the user's loop protocol instead (there is no
-   `mast loop` CLI command -- mast-loop is retired; this path applies only
-   if a user wires their own loop).
+   **Graduation gate:** When running interactively, do not graduate
+   automatically -- present the commands and wait for user approval, then
+   hand off to `/mast:spec`. When execution runs unattended under a recurring
+   loop (e.g. Claude Code's `/loop` built-in), graduation follows the user's loop protocol
+   instead -- and only if that protocol explicitly authorizes graduation;
+   otherwise present the commands and stop.
 
 ```
 Ready for graduation:
@@ -811,7 +811,7 @@ Blocked:
   <spec-id> R6: blocked on spec amendment (see carry-forward summary)
 ```
 
-5. If this is the last phase and all rules are ready, note that the specs are ready for full graduation. When the last `[pending]` rule in a `[pending]` spec is set to `[active]`, the spec-level status auto-flips to `[active]`.
+5. If this is the last phase and all rules are ready, note that the specs are ready for full graduation. Graduating ANY rule to `[active]` on a `[pending]` spec auto-flips the spec-level status to `[active]` in the same write (a pending spec cannot carry `[active]` rules — partial graduation is legal and the CLI prints `spec status auto-flipped: pending -> active`); setting the last `[pending]` rule to any non-pending status also flips. Do NOT graduate unready rules just to silence the spec-status linter — the flip already handles partial graduation. Expect `stale-design-header` warnings on the now-active spec while later rules remain `[pending]` and a `design:`/`plan:` header lingers; drop the header once superseded.
 
 6. Run `mast context render` if any spec status changed, to keep AGENTS.md zones current.
 
@@ -908,7 +908,7 @@ For rules that describe invariants, check whether the implementation uses compil
 - **Exhaustive match.** Does the code use `match` without a wildcard arm? If it uses `_ =>`, the compiler will not catch new variants.
 - **Type safety.** Does the code use newtypes or branded types to prevent argument confusion?
 - **Sealed access.** Does the code use visibility modifiers to prevent external construction of values that should only come from validated paths?
-- **Layer separation.** Does the code respect the crate dependency topology? Check with `cargo tree -p <crate>` or the project's archtest suite.
+- **Layer separation.** Does the code respect the crate dependency topology? Check with `cargo tree -p <crate>` or the project's arch-test suite, if it has one.
 
 Report each finding with the specific file and line.
 
@@ -1104,23 +1104,20 @@ Multi-dimensional decision in spec?
 
 **Example:**
 
-```rust
-// manager/src/lib.rs -- stubbed in Phase 0, implemented in Phase 3a
-pub trait Manager {
-    type Entity;
-    fn business_rules(
-        &self,
-        mutation: &Mutation,
-        corpus: &Corpus,
-    ) -> Result<Vec<Finding>>;
+```ts
+// src/ledger/journal.ts -- stubbed in Phase 0, implemented in Phase 2
+// (examples/ledger: read-journal R1 fully specifies the shape -- the two
+// entries for a transferId, {transfer-funds.debit} before {transfer-funds.credit})
+export interface JournalReader {
+  entriesFor(transferId: string): Entry[];
 }
 
-pub fn apply<M: Manager>(
-    repo: &Repository<ReadWrite>,
-    mutation: Mutation,
-    manager: &M,
-) -> Result<MutationOutcome, ManagerError> {
-    todo!("Phase 3a: manager-layer R6-R8")
+export function journalReader(store: EntryStore): JournalReader {
+  return {
+    entriesFor(transferId: string): Entry[] {
+      throw new Error("todo: Phase 2 -- read-journal R1-R2");
+    },
+  };
 }
 ```
 
@@ -1134,9 +1131,9 @@ pub fn apply<M: Manager>(
 2. Write `Cargo.toml` with correct dependencies
 3. Write `src/lib.rs` with `#![forbid(unsafe_code)]` and public type stubs
 4. Add the crate to workspace `Cargo.toml` `members`
-5. Add topology edges in `internal/archtest` if applicable
+5. If the project has an architecture/topology spec or arch-test suite, declare the new crate's allowed dependency edges there
 6. Run `cargo build --workspace` to verify compilation
-7. Run archtest to verify topology
+7. Run the arch-test suite (if present) to verify topology
 
 ### T3: Tracer bullets
 
@@ -1160,20 +1157,44 @@ How to select the tracer:
 
 **Action:** Write a test that asserts the WRONG usage does not compile. In Rust, use `trybuild`. In TypeScript, use `tsd` or `@ts-expect-error`.
 
-**Example (Rust with trybuild):**
+**Example (TypeScript with `@ts-expect-error`):**
 
-```rust
-// tests/compile_fail/read_only_apply.rs
-// Expected error: E0271 -- ReadOnly does not satisfy ReadWrite bound
-use mast_manager::{Repository, ReadOnly, apply};
+```ts
+// examples/ledger: close-account R2 -- a transfer touching a closed account
+// MUST be rejected. Enforce it at compile time with a branded account state:
+type OpenAccount = Account & { readonly state: "open" };
 
-fn main() {
-    let repo: Repository<ReadOnly> = todo!();
-    let mutation = todo!();
-    let manager = todo!();
-    apply(&repo, mutation, &manager);
+declare function transfer(from: OpenAccount, to: OpenAccount, minor: number): TransferResult;
+
+const closed = closeAccount(source); // : Account & { state: "closed" }
+
+// @ts-expect-error -- close-account R2: closed accounts cannot enter a transfer
+transfer(closed, destination, 100);
+```
+
+The `@ts-expect-error` line IS the compile-fail test: if the wrong usage ever starts type-checking, the build fails.
+
+**Example (exhaustive switch):**
+
+```ts
+// transfer-funds exports two legs: debit and credit. The `never` arm makes
+// a missing case a compile error -- delete the "credit" arm and this file
+// stops type-checking. That failure is the compile-fail assertion.
+type Leg = "debit" | "credit";
+
+function sign(leg: Leg): 1 | -1 {
+  switch (leg) {
+    case "debit": return -1;
+    case "credit": return 1;
+    default: {
+      const unreachable: never = leg;
+      return unreachable;
+    }
+  }
 }
 ```
+
+**Rust projects:** the equivalent harness is `trybuild` -- put each wrong-usage snippet in its own file and assert it fails to compile:
 
 ```rust
 // tests/compile_fail.rs
@@ -1182,23 +1203,6 @@ fn compile_fail_tests() {
     let t = trybuild::TestCases::new();
     t.compile_fail("tests/compile_fail/*.rs");
 }
-```
-
-**Example (exhaustive match):**
-
-```rust
-// tests/compile_fail/missing_kind_arm.rs
-// Expected error: E0004 -- non-exhaustive patterns
-use mast_lang_ast::SpecKind;
-
-fn dispatch(kind: SpecKind) -> &'static str {
-    match kind {
-        SpecKind::Feature => "feature",
-        // Missing: Constitution, Workflow, Component, Unset, Unknown
-    }
-}
-
-fn main() {}
 ```
 
 **Review mode integration:** When auditing compile-time enforcement (Step 4), check for compile-fail tests. Active rules describing compile-time invariants without compile-fail tests get a PARTIAL coverage verdict.
@@ -1217,22 +1221,19 @@ Process:
 
 **Example:**
 
-```rust
-// From gov-linker-verify R6 success.roots_overlap_detected:
-#[test]
-fn roots_overlap_emits_warning() {
-    let corpus = TempProject::new()
-        .with_march("domain-a", "roots: src/\n")
-        .with_march("domain-b", "roots: src/lib/\n")
-        .build_corpus();
+```ts
+// examples/ledger: from idempotent-transfer R1 success.replay_same_id
+// (and MUST replay_noop), written against the T1-stubbed TransferService:
+test("replayed Idempotency-Key returns the same transferId", async () => {
+  const api = testApi(); // real routes over the stubbed service
+  const key = "idem-123";
 
-    let findings = verify_governance(&corpus);
+  const first = await api.post("/transfers", body, { "Idempotency-Key": key });
+  const second = await api.post("/transfers", body, { "Idempotency-Key": key });
 
-    assert!(findings.iter().any(|f|
-        f.code == "roots/overlap"
-        && f.severity == Severity::Warning
-    ));
-}
+  expect(second.transferId).toBe(first.transferId);   // success.replay_same_id
+  expect(await balanceOf(from)).toEqual(afterOneTransfer); // MUST replay_noop
+});
 ```
 
 ### T6: Pure-function extraction
@@ -1252,44 +1253,35 @@ Process:
 
 **Example:**
 
-```rust
-fn modulate_severity(
-    constitution_status: Lifecycle,
-    rule_chip: Lifecycle,
-    compliance_state: ComplianceState,
-) -> Severity {
-    todo!()
+```ts
+// examples/ledger: transfer admission is a three-dimensional decision --
+// transfer-funds R1 (MUST positive), R4 (MUST same_currency), R3 (MUST no_overdraft).
+type TransferVerdict = "Ok" | "InvalidAmount" | "CurrencyMismatch" | "InsufficientFunds";
+
+function classifyTransfer(
+  minor: number,          // R1: must be positive
+  sameCurrency: boolean,  // R4: currencies must match
+  sourceBalance: number,  // R3: debit must not overdraw
+): TransferVerdict {
+  throw new Error("todo");
 }
 
-#[test]
-fn severity_modulation_matrix() {
-    use Lifecycle::*;
-    use ComplianceState::*;
-    use Severity::*;
+test("transfer admission matrix", () => {
+  const cases: Array<[number, boolean, number, TransferVerdict]> = [
+    [0,   true,  100, "InvalidAmount"],      // R1 rejects zero
+    [-5,  true,  100, "InvalidAmount"],      // R1 rejects negative
+    [0,   false, 100, "InvalidAmount"],      // R1 wins over R4
+    [50,  false, 100, "CurrencyMismatch"],   // R4 rejects mixed currencies
+    [500, false, 100, "CurrencyMismatch"],   // R4 checked before funds
+    [500, true,  100, "InsufficientFunds"],  // R3 rejects the overdraft
+    [50,  true,  100, "Ok"],
+    [100, true,  100, "Ok"],                 // exact balance is not an overdraft
+  ];
 
-    let cases = [
-        (Draft, New, Pending,   Info),
-        (Draft, New, Certified, Info),
-        (Draft, Active, Pending, Info),
-        (Draft, Active, Certified, Info),
-        (New, New, Pending,     Warning),
-        (New, New, Certified,   Warning),
-        (New, Active, Pending,  Warning),
-        (New, Active, Certified, Error),
-        (Active, New, Pending,  Warning),
-        (Active, New, Certified, Warning),
-        (Active, Active, Pending, Warning),
-        (Active, Active, Certified, Error),
-    ];
-
-    for (status, chip, state, expected) in cases {
-        assert_eq!(
-            modulate_severity(status, chip, state),
-            expected,
-            "({status:?}, {chip:?}, {state:?})"
-        );
-    }
-}
+  for (const [minor, same, balance, expected] of cases) {
+    expect(classifyTransfer(minor, same, balance)).toBe(expected);
+  }
+});
 ```
 
 ---
@@ -1326,8 +1318,8 @@ The tradeoff across stages: **degrees of freedom** vs. **information quality**. 
 ```
 Phase 1 [opening]
   Structural questions:
-  - Does the Tiers block parser compose with the existing block-phase map?
-  - Does SpecKind::Constitution require a new validator slice shape?
+  - Does the journal read fit the existing EntryStore.forTransfer port, or does read-journal need a new port?
+  - Does the read-journal route compose with the existing api route table, or does it need its own module?
 ```
 
 **Phase mode:** After completing an opening-stage phase, run a brief structural check:
@@ -1452,18 +1444,18 @@ Critical behavioral constraints. This is the recency-zone summary of what matter
 15. **Diamond deps get pre-phase stubs.** If two parallel specs share a transitive dependency, stub that dependency's interface before parallel work begins.
 16. **Plan invalidation is a state.** If a phase failure or midgame review reveals structural amendments, write PLAN_INVALIDATED and re-plan before continuing.
 17. **Collapse trivial phases.** Consecutive single-spec phases targeting the same crate should be merged.
-18. **mast-loop graduation follows loop protocol.** Check for `<ralph-context>` block; if present, follow the user's loop graduation protocol instead of waiting for human approval (there is no `mast loop` CLI command; mast-loop is retired -- this applies only if a user wires their own loop).
+18. **Unattended graduation follows loop protocol.** When execution runs unattended under a recurring loop (e.g. `/loop`), follow the user's loop graduation protocol instead of waiting for human approval -- and only if that protocol explicitly authorizes graduation.
 
 ## Style rules
 
 The no-emoji rule is a project convention -- see **REF-CONVENTIONS**. The rest are dag-plan-specific:
 
 - **Bare numeric rule IDs everywhere.** R3 in the spec is `3` in the CLI and in every plan, graduation command, and report.
-- **Propose, do not auto-execute.** Plans and graduation commands are presented for approval, not run; the only exception is a user-wired loop (the deprecated mast-loop path).
+- **Propose, do not auto-execute.** Plans and graduation commands are presented for approval, not run; the only exception is a user-wired recurring loop whose protocol explicitly authorizes it.
 - **Cite evidence or say "inconclusive."** Every compliance verdict carries a file path or command; a verdict you cannot back with evidence is not a pass.
 - **Pasted output, never self-assessment.** Checkpoints and validation rows are the command's actual output, not a judgment that it "works."
 - **Never weaken a failing test** to make it pass. A failing test is a finding (spec wrong, impl stuck, or pre-existing breakage), classified by the failure protocol.
 
 ## Worked example
 
-[`examples/ledger/`](../../../../examples/ledger) has a concrete planning target: `read-journal` is a `[pending]` feature that `extends transfer-funds`, anchored only to Design/Plan docs (`mast spec read read-journal --with-blocked-by --root examples/ledger`). It is exactly the shape this skill decomposes — a not-yet-built spec whose parent is active, with `EntryStore.forTransfer` already implemented (the seam) and only the HTTP route and ordering/pagination decisions (its `open:` markers) left to phase. The four active features (`open-account`, `get-balance`, `transfer-funds`, `idempotent-transfer`) plus their two `.march` domains form a small dependency graph (`idempotent-transfer` `Depends on` `transfer-funds`) to practise lane assignment, seams, and join points on.
+[`examples/ledger/`](../../../../examples/ledger) has a concrete planning target: `read-journal` is a `[pending]` feature that `extends transfer-funds`, whose Targets carry only Design/Plan anchors (`mast spec read read-journal --with-blocked-by --root examples/ledger`). It is exactly the shape this skill decomposes — a not-yet-built spec whose parent is active, with `EntryStore.forTransfer` already implemented (the seam) and only the HTTP route and ordering/pagination decisions (its `open:` markers) left to phase. The four active features (`open-account`, `get-balance`, `transfer-funds`, `idempotent-transfer`) plus their three `.march` domains form a small dependency graph (`idempotent-transfer` `Depends on` `transfer-funds`) to practise lane assignment, seams, and join points on. (If `examples/` is not on disk — plugin installs ship only `plugins/mast/` — browse or clone it from https://github.com/MastSystems/mast-skills/tree/main/examples/ledger to run the `--root examples/ledger` commands above.)

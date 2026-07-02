@@ -175,27 +175,39 @@ forget.
 
 ## REF-THEORY.spec-theory-pointer
 
-For questions about this project's *own* theory of specification -- what a spec is,
-what belongs in one, how a corpus should be read and how it ages -- the explicit
-treatment lives in **`docs/spec-theory/`** (the numbered pillar series
-`01-excavation.md` … `10-roadmap.md`; the series is the eight-pillar synthesis of
-mast's design rationale). Cite it alongside the general-literature sections above
-when the question concerns mast's *design rationale* rather than the broader
-architecture/data-modeling literature. The general literature (Chen, Halpin, Evans,
-Ford-Parsons-Kua, the framework crosswalk) gives an answer intellectual authority;
-`docs/spec-theory/` gives the mast-specific stance.
+Mast's own theory of specification, distilled to its load-bearing claims:
+
+- **A spec is an optative description of shared phenomena** (Zave-Jackson), at a
+  chosen abstraction level (Lamport), recorded as the idealized post-hoc contract
+  rather than the discovery history (Parnas); its best single framing is *source
+  of fitness functions* -- claims compiled into executable gates.
+- **Subtraction is the motto.** Nearly every mast mechanism is a closed set, a
+  banned register, or a disjoint partition; a spec is what survives principled
+  deletion.
+- **A spec scaffolds cheap theory-rebuilding; it is not the theory itself**
+  (Naur), so a corpus optimizes the reader's information gain per token -- the
+  root of the read-path doctrine in `orient`.
+- **Claims carry refutation procedures** (the falsifiable-anchor lints), and
+  uncertainty is typed (`open:` markers, deontic prefixes), never connoted.
+
+The general-literature sections above lend an answer intellectual authority;
+these claims are the mast-specific stance on *design rationale* questions.
 
 ## REF-THEORY.ledger-fixture
 
-[`examples/ledger/`](../../examples/ledger) is a small, self-contained corpus that
+[`examples/ledger/`](../../../examples/ledger) is a small, self-contained corpus that
 lints clean under `mast lint ci` and serves as the worked-example anchor for the
 orientation modes (pass `--root examples/ledger` to every command). It is the
-golden fixture the differential evals run against (A15). Its shape:
+golden fixture the differential evals run against (A15). (Running as an installed
+plugin, `examples/` may not be on disk (plugin installs ship only `plugins/mast/`) — if missing, browse or clone it from
+https://github.com/MastSystems/mast-skills/tree/main/examples/ledger to run those
+`--root examples/ledger` commands.) Its shape:
 
 - **Three domains** -- `accounts`, `ledger`, `api` -- with `ledger` as the
   load-bearing one (it both `uses` `accounts` and is governed by a constitution).
-- **A deep spec** -- `transfer-funds` carries Define/Exports/Boundary, two
-  invariants, a `Cites`, and an `!overreach` debt edge in its domain.
+- **A deep spec** -- `transfer-funds` carries Define/Exports/Boundary, four
+  invariants, inbound `Cites` pins from `idempotent-transfer` and `read-journal`,
+  and an `!overreach` debt edge in its domain.
 - **A file-to-spec example** -- `src/ledger/transfer-service.ts` is anchored by
   `transfer-funds` and the `ledger-governance` constitution; `mast describe attached
   transfer-funds` shows the derived component set.

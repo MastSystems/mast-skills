@@ -3,9 +3,12 @@ title: Read a transfer's journal entries (planned)
 status: pending
 version: 1
 extends: transfer-funds >= 1
+design: docs/read-journal-design.md
+plan: docs/read-journal-plan.md
 
 uses { component:EntryStore } from ledger
 uses { component:Api } from api
+uses { define:debit, define:credit } from transfer-funds
 
 References
   $readme @file=README.md
@@ -20,6 +23,7 @@ Boundary
   out: mutating entries, exporting the journal to an external system
 
 Rule R1.lists-entries-for-transfer [pending]
+  Cites transfer-funds.I2.double-entry-sums-to-zero
   Given a settled transferId
   When the journal is queried through {api.Api}
   Then {ledger.EntryStore} returns the two entries recorded for that transfer

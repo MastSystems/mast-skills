@@ -1,0 +1,10 @@
+spec: tokens
+title: Grammar-tour edge-type vocabulary
+status: active
+version: 1
+
+EdgeTypes
+  edge-type Renders
+    transport: in-process
+    direction: directed
+    description: a widget delegates its drawing to the base rendering pipeline it inherits from

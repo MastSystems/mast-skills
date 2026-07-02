@@ -3,7 +3,7 @@
 Scope: `examples/ledger`, depth=standard, languages=TypeScript, cap=all
 Mode: characterization, not specification — harvested from observed behavior; intent unconfirmed
 
-This manifest is the output of a worked `/mast:mine` run (Phases 1–5, 4 sub-agents:
+This manifest is the output of a worked `/mast:mine` run (Phases 1–5, 5 sub-agents:
 1 Opus architecture sketch, 2 Sonnet domain extractions + 1 Sonnet type-vocabulary,
 1 Opus feature inventory). It is the reference example the mast skills point at.
 

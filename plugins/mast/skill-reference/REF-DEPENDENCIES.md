@@ -16,7 +16,10 @@ A spec relates to other specs three ways:
 - **`Cites <spec>.R<n>` (or `.I<n>`)** — a rule-level, content-pinned reference
   placed under a rule header. The lockfile (`specs/mast.lock`) pins the cited
   entry with a blake3 content-hash, so silent drift in the upstream rule surfaces
-  as a linker diagnostic and a non-`fresh` row in `mast cite list`. After editing
-  a cited rule body, re-pin with `mast cite ack`.
+  as a linker diagnostic and a non-`fresh` row in `mast cite list`. The lock row
+  is written by `mast cite ack`, not automatically: a brand-new `Cites` line has
+  no row yet and will not lint clean until you `mast cite ack <from>.R<n>` (or
+  `--all`), so write the citation *without* `--lint` first, ack, then re-lint.
+  After editing a cited rule body, re-pin the same way.
 
 Traversal: `mast graph <id> --edge deps|extends|cites [--direction in|out]`.

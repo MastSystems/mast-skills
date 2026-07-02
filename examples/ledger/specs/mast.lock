@@ -4,5 +4,11 @@ version = 1
 [[entry]]
 from = "idempotent-transfer.R1"
 to = "transfer-funds.R2"
-hash = "blake3-v1+fmt-v3:cafc7f8c5382c2eda49980aef2ccf5a2814f0e16d258c161bb82e0195433db6c"
-acked_at = "2026-06-14T00:29:59Z"
+hash = "blake3-v1+fmt-v3:d78f88558cc99fe7105b1a51db1342430d735347c60444260031ce2688ce767b"
+acked_at = "2026-07-01T21:24:51Z"
+
+[[entry]]
+from = "read-journal.R1"
+to = "transfer-funds.I2.double-entry-sums-to-zero"
+hash = "blake3-v1+fmt-v3:25eabc4e7af69d049cdea94cc9249ac269c1001457a8f67380be42a6fb5d67b1"
+acked_at = "2026-07-01T21:24:51Z"

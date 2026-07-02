@@ -10,17 +10,23 @@
 Spec status progresses through a fixed order:
 
 ```
-draft  →  pending  →  active  →  retired
+queued  →  draft  →  pending  →  active  →  amended  →  retired
 ```
 
+- **queued** — accepted into the backlog before design starts. Treated like a
+  brand-new spec: it may carry zero rules, it is exempt from the completeness
+  lints, and it must not carry `[active]` rule chips.
 - **draft** — design stage.
 - **pending** — implementing.
 - **active** — shipped. CI gates only fully enforce **active** specs.
+- **amended** — shipped, then materially revised. Enforced like active: the spec
+  needs at least one rule, and an `[amended]` rule chip requires at least one
+  code anchor.
 - **retired** — superseded.
 
-Rules within a spec carry their own status chips (e.g. `[pending]`, `[active]`),
-independent of the spec's overall status. The lifecycle tells the toolchain what to
-enforce.
+Rules within a spec carry their own status chips (e.g. `[pending]`, `[active]`,
+`[amended]`), independent of the spec's overall status. The lifecycle tells the
+toolchain what to enforce.
 
 ## The anchor ratchet (A5)
 
@@ -65,6 +71,21 @@ blocking anchor. After graduation the inverse holds: an Active spec that still
 carries a Design/Plan anchor emits `DesignAnchorOnActiveRule` (**error**), and one
 still carrying a stale `design:`/`plan:` header emits a stale-design **warning** —
 the design-phase artifacts should have been archived or removed.
+
+## Spec-status auto-flip on graduation
+
+`rule set-status ... --status active` on a `[pending]` spec **auto-flips the
+spec-level status to `[active]` in the same atomic write** — on the FIRST
+graduated rule, not just the last. A pending spec cannot carry `[active]` rules
+(`new-spec-has-active-rule`), so partial graduation is handled by the flip:
+the spec goes active, the remaining rules stay `[pending]`, and the CLI prints
+`spec status auto-flipped: pending -> active`. Setting the last `[pending]`
+rule to any non-pending status also flips. Never mark unready rules `[active]`
+to silence the linter — graduate only what is ready and let the flip do the
+spec-level bookkeeping. While later rules remain `[pending]`, a lingering
+`design:`/`plan:` header on the now-active spec emits the stale-design
+**warning** described above. An explicit `status` field in a mask patch is
+authoritative and suppresses the flip.
 
 ## AnchorKind taxonomy (A2)
 

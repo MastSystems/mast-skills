@@ -30,4 +30,5 @@ store IdempotencyStore
 Edges
   edge e1: TransferService -[Persists]-> EntryStore @file=src/ledger/transfer-service.ts#transfer
   edge e2: TransferService -[Persists]-> IdempotencyStore @file=src/ledger/transfer-service.ts#transfer
-  edge e3: TransferService -[]-> AccountService @file=src/ledger/transfer-service.ts#transfer !overreach
+  edge e3: TransferService -[]-> AccountService @file=src/ledger/transfer-service.ts#transfer !overreach(pending)
+    reason: the transfer service applies debits directly; route through a ledger-local port instead

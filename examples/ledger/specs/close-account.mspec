@@ -21,4 +21,5 @@ Rule R2.closed-rejects-transfers [pending]
   When a transfer names it as source or destination
   Then the transfer is rejected with an AccountClosed error
     MUST closed_blocks: a transfer touching a closed account MUST be rejected
+    MUST NOT closed_mutation: posting a journal entry to a closed account fails with an AccountClosed error and leaves the journal unchanged
     open: whether the rejection maps to HTTP 409 or 422 is undecided

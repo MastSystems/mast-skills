@@ -44,7 +44,7 @@ When the user says just "check" with no qualifier, use **Pre-push** mode.
 
 **Goal:** Run the same checks CI will run, locally, before pushing. Report pass/fail per check with a clear overall verdict.
 
-**Gather.** Detect the build system, run its check sequence, then run mast's own checks if a corpus exists.
+**Gather.** Establish corpus state first: `mast doctor` is daemon-free, always exits 0 on a successful diagnosis, and names the onboarding phase. `P0 (Bare)` means there are no mast gates to run — say so instead of inventing them; any `error`-severity finding doctor lists is itself a pre-push blocker to surface. Then detect the build system, run its check sequence, then run mast's own checks if a corpus exists.
 
 #### Build-system detection
 
@@ -126,9 +126,9 @@ mast lint fmt --check .
 mast lint ci .
 ```
 
-If the repo's gates are unified through the top-level `mast ci` command (run `mast ci --help` to probe -- it covers fmt, clippy, test, machete, keep-sorted, specs, and perf in one gate), prefer running `mast ci` as the single source of truth instead of reproducing the per-tool sequence above; it is what CI itself runs.
+Some hosts unify their gates through a top-level `mast ci` command -- probe with `mast ci --help` first; whatever gate list that help enumerates for this repo is authoritative. When the command exists, prefer running `mast ci` as the single source of truth instead of reproducing the per-tool sequence above; it is what CI itself runs.
 
-If the project has `internal/archtest` tests (Rust-specific), those run as part of `cargo test --workspace` and do not need a separate invocation.
+If the project keeps architecture-enforcement tests inside its normal test suite (e.g. a Rust workspace with an `internal/archtest` crate), those run as part of the workspace test command and do not need a separate invocation.
 
 **Design-anchor info on `[pending]` specs.** Design anchors (`*-design.md`) and plan anchors (`*-plan.md`) are the expected target shape for `[pending]` specs describing not-yet-built code, so they are NOT lint errors there (the AnchorKind taxonomy and the design-anchor lifecycle are shared doctrine — see **REF-LIFECYCLE**). Surface them as an info line, not a failure:
 
@@ -217,7 +217,9 @@ When checks fail, show the first 20 lines of each failure's stderr/stdout. Do no
 
 #### Phase 0 -- Intake (always do this; cannot be skipped)
 
-Before running any commands, route the audit with a two-question intake. Ask both questions in a single exchange. The goal is to reach a concrete audit plan in at most two exchanges with the user -- never three.
+Before asking anything, run `mast doctor --format json` as the intake's first datum: the reported phase names which surfaces exist to audit at all (a corpus below the architecture phase has no L6 topology to conform; a bare repo has nothing to audit but the onboarding gap itself), its findings seed the finding inventory, and its `nextCommand` is the fallback recommendation when an audit surface turns out to be empty.
+
+Then route the audit with a two-question intake. Ask both questions in a single exchange. The goal is to reach a concrete audit plan in at most two exchanges with the user -- never three.
 
 ##### Question 1 -- Surface
 
@@ -614,9 +616,9 @@ FRESH (score 0): <N> specs
 For each non-fresh spec, list the specific signals that fired and their evidence. Example:
 
 ```
-  ci-gates  score=5  signals:
-    - git-age-gap [2]: spec last modified 2025-11-01, target .github/workflows/ci.yml last modified 2026-03-15 (134 days gap)
-    - cite-drift [3]: R4 cites release-conventions.R1 -- citation is STALE (upstream content changed)
+  idempotent-transfer  score=5  signals:
+    - git-age-gap [2]: spec last modified 2025-11-01, target src/ledger/idempotency.ts last modified 2026-03-15 (134 days gap)
+    - cite-drift [3]: R1 cites transfer-funds.R2 -- citation is STALE (upstream content changed)
 ```
 
 ##### Single-spec variant (for option 4 + spec)
@@ -681,7 +683,7 @@ mast describe governance <domain>                     # domain compliance breakd
 3. **Compliance gaps.** Per domain: which rules are still pending? Which are waived (with justifications)? Flag waived rules without a justification string (a linker error -- `mast lint check .` will surface it, but report if found).
 4. **Tier distribution.** Which tiers are most adopted? Are all domains at the same tier, or is there variance? Because consecutive tiers form a monotonic superset chain, a domain enforcing a higher tier is bound to a superset of the lower tier's rules. High variance may indicate an uneven adoption curve.
 5. **Certification information content.** Pull the `compliance:` block from `mast describe stats` (certified / pending / waived totals corpus-wide). Blanket certification -- every governed rule certified, zero pending, zero waived across all domains -- is a smell, not a strength: a ratchet that has never had anything to ratchet carries no information, and `certified: yes` one-liners are the cheapest conforming move. Report the distribution, and when it is N/0/0, state explicitly that the certified count is currently indistinguishable from ceremony. This finding does not lower the percentage-based score below, but it must appear in the report. Cross-check the stats block against each `mast describe constitution <id>` table first -- the two sources can disagree (stats may aggregate differently); when they do, score from the constitution tables and report the discrepancy as a tooling finding rather than asserting ceremony.
-6. **Ratchet health.** The certified set is forward-only: once a rule ID appears under `certified:` in a `Compliance <C>` block on the base branch, it cannot be removed from `certified:` or regressed to `pending:` / `waive:` in a later commit. This ratchet is enforced at write time by the apply/transact layer (the "evolution ratchet" check in `manager/src/apply.rs`) -- a regressing `mast spec patch` / `write` is rejected before the bytes land, so a clean working tree means the ratchet held. To audit it, compare the current `certified:` rule sets against the base branch: `git show <base>:<march-path>` versus the working copy, and flag any rule that left `certified:`. Any such regression is RED. Separately, run `mast lint check .` and grep for `imports/attached-to-deprecated` -- it means a spec still carries a retired `attached_to:` header that must be replaced with a `uses { component: ... } from <id>` import or a rule chip component ref.
+6. **Ratchet health.** The certified set is forward-only: once a rule ID appears under `certified:` in a `Compliance <C>` block on the base branch, it cannot be removed from `certified:` or regressed to `pending:` / `waive:` in a later commit. This ratchet is enforced at write time inside the binary's apply/transact layer (its "evolution ratchet" check) -- a regressing `mast spec patch` / `write` is rejected before the bytes land, so a clean working tree means the ratchet held. To audit it, compare the current `certified:` rule sets against the base branch: `git show <base>:<march-path>` versus the working copy, and flag any rule that left `certified:`. Any such regression is RED. Separately, run `mast lint check .` and grep for `imports/attached-to-deprecated` -- it means a spec still carries a retired `attached_to:` header that must be replaced with a `uses { component: ... } from <id>` import or a rule chip component ref.
 
 The severity a governed rule's violation carries is a pure function of *compliance state × constitution status × rule chip* — the **severity-modulation truth table**:
 
@@ -861,7 +863,7 @@ Run this before starting any implementation loop or multi-step task.
    ```
    PRE-FLIGHT FAILED:
    - MISSING: specs/foo.mspec (referenced in task description)
-   - MISSING: store/src/lib.rs (referenced in spec target)
+   - MISSING: src/ledger/transfer-service.ts (referenced in spec target)
    ```
    Stop here. Do not proceed with implementation.
 
@@ -892,7 +894,7 @@ The no-emoji rule is a project convention — see **REF-CONVENTIONS**. The rest 
 
 ## Worked example
 
-[`examples/ledger/`](../../../../examples/ledger) is a small, self-contained mast project (its own `mast.toml` + `specs/`) you can run every mode against without touching the host repo:
+[`examples/ledger/`](../../../../examples/ledger) is a small, self-contained mast project (its own `mast.toml` + `specs/`) you can run every mode against without touching the host repo (if `examples/` is not on disk — plugin installs ship only `plugins/mast/` — clone it from https://github.com/MastSystems/mast-skills/tree/main/examples/ledger to run the `examples/ledger` commands below):
 
-- **Pre-push:** `mast lint ci examples/ledger` exits 0 — a clean baseline. The corpus is 3 domains, 6 components, 6 specs (5 active + 1 `[pending]`), and one constitution, so an Audit has real material: `mast describe governance ledger --root examples/ledger` shows a CERTIFYING domain (certified / pending / waived rules), and `mast describe attached transfer-funds --root examples/ledger` shows derived L7→L6 attachment.
-- **What a healthy small corpus looks like:** every declared edge-type and component-kind is bound, every feature attaches to a component, and the one intentional debt is recorded as an `!overreach` edge annotation rather than left implicit — a model for the "evidence cited, no implicit problems" output an Audit should produce.
+- **Pre-push:** `mast lint ci examples/ledger` exits 0 — a clean baseline. The corpus carries multiple domains and components, feature specs across several lifecycle stages, and a governance constitution, so an Audit has real material: `mast describe governance ledger --root examples/ledger` shows a CERTIFYING domain (certified / pending / waived rules), and `mast describe attached transfer-funds --root examples/ledger` shows derived L7→L6 attachment.
+- **What a healthy small corpus looks like:** every declared edge-type and component-kind is bound, every implemented feature attaches to a component (the queued `audit-trail` sketch deliberately has no attachment yet), and the one intentional debt is recorded as an `!overreach` edge annotation rather than left implicit — a model for the "evidence cited, no implicit problems" output an Audit should produce.

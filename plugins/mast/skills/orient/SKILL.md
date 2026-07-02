@@ -29,7 +29,7 @@ doubt.
 | "tour the corpus", "what is this codebase", "where do I start", "give me the lay of the land", "show me around" | **A** (corpus overview) |
 | "tour checkout-flow", "explain the payments spec", "walk me through auth-middleware" | **B** (focused tour) |
 | "I want to add a new linter", "where would I add a CLI subcommand", "I'm trying to fix a CI failure" | **C** (task routing) |
-| "which spec governs store/src/corpus.rs", "what spec covers this file", "I'm looking at lint/src/check.rs" | **D** (reverse lookup) |
+| "which spec governs src/ledger/transfer-service.ts", "what spec covers this file", "I'm looking at src/accounts/service.ts" | **D** (reverse lookup) |
 | "what's the relationship between .mspec and .march", "how does attachment work", "what does DDD say", "explain the layered model", "is this a smell" | **E** (conceptual Q&A) |
 | "what governance applies here", "which constitution covers this domain", "what is a constitution in mast", "how do tiers work", "what's the compliance state" | **E** (conceptual Q&A) |
 
@@ -98,12 +98,13 @@ are the canonical as-needed-reading failure, and the graph makes the closure che
 enumerate. Be systematic over the closure of the change, as-needed everywhere else.
 
 **Landmarks: degree and status are not authority.** Shape signals lie about
-importance exactly where stakes are highest. In this repo, `specs/core.mspec` is
-status `draft` with 0 rules and a fan-in of 1 (from a retired spec) — and it carries
-the architectural invariants AGENTS.md treats as constitutional; conversely, the
-highest fan-in usually measures plumbing, not authority. Read
-`mast list constitutions` and any architectural-invariant spec (here, `core`) in
-every exploration regardless of what their shape signals say. There is no
+importance exactly where stakes are highest. A corpus often carries a root or
+architectural-invariant spec whose shape looks skippable — status `draft`, zero
+rules, fan-in of one — while the repo's AGENTS.md treats its claims as
+constitutional; conversely, the highest fan-in usually measures plumbing, not
+authority. Read `mast list constitutions` and any architectural-invariant spec
+(IDs like `core` or `architecture`, but the repo may use any naming) in every
+exploration regardless of what their shape signals say. There is no
 machine-readable importance signal independent of topology yet; the AGENTS.md push
 channel and this paragraph are the workaround.
 
@@ -135,6 +136,7 @@ I start", "give me the lay of the land", "show me around this repo".
 **Gather** (the calls below are sufficient — do not fan out per-spec):
 
 ```bash
+mast doctor                    # onboarding phase + the single next command; P0/P1 = tour the onboarding path, not a corpus that isn't there yet
 mast list specs
 mast describe stats
 mast list deps
@@ -306,9 +308,9 @@ spec, run `mast describe inbound <id>` to map the neighborhood.
 
 ### Mode D -- Reverse lookup ("what spec governs this file?")
 
-Use when the user points at a source file: "which spec governs store/src/corpus.rs",
-"what spec covers this code", "I'm looking at lint/src/check.rs — what should I read
-first?".
+Use when the user points at a source file: "which spec governs
+src/ledger/transfer-service.ts", "what spec covers this code", "I'm looking at
+src/accounts/service.ts — what should I read first?".
 
 **Gather.** Extract the file path from the user's message. Normalize it relative to
 the repo root.
@@ -321,8 +323,8 @@ mast list targets
 
 # Step 2: search architecture components for the enclosing module
 mast list components
-# Match by crate/directory -- e.g. store/src/corpus.rs belongs to
-# whichever component's path set includes store/
+# Match by module/directory -- e.g. src/ledger/transfer-service.ts belongs to
+# whichever component's path set includes src/ledger/
 
 # Step 3: find attachment relationships, for each candidate spec from step 1
 mast describe attached <spec-id>
@@ -375,7 +377,7 @@ named, individually-addressable source.
 | how the layers couple; "what goes in `.march` vs `.mspec` vs `.mtypes`"; ubiquitous language | **REF-THEORY.context-maps** (DDD context maps; Evans/Vernon) |
 | which architecture framework's vocabulary fits; multi-view modeling | **REF-THEORY.framework-crosswalk** (C4 / arc42 / 4+1 / 42010 / SEI) |
 | why detection is run rather than asserted; "what does green lint actually prove" | **REF-THEORY.fitness-functions** (Ford-Parsons-Kua + the conformance trap) |
-| mast's *own* theory of specification (what a spec is, how a corpus ages) | **REF-THEORY.spec-theory-pointer** → `docs/spec-theory/` |
+| mast's *own* theory of specification (what a spec is, how a corpus ages) | **REF-THEORY.spec-theory-pointer** |
 | "is this a smell?", describe-don't-prescribe, characterization vs specification | **REF-POSTURE.descriptive** (Alexander / Cockburn / Feathers / Naur / Hickey / Argyris-Schön) |
 | the load-bearing `.mspec` idioms (pipe-block, `When`, `Cites`, `Invariant`, `success.`); `invariant.<name>` vs `Invariant I<n>`; march-typing | **REF-IDIOMS** (A9 / A10 / E4) |
 | the three file kinds and derived attachment | **REF-FILEKINDS** |
@@ -384,10 +386,11 @@ named, individually-addressable source.
 | constitutions, tiers, compliance, the ratchet | **REF-GOVERNANCE** |
 
 Cite the named sources in the section when making claims — the citations give the
-answer intellectual authority and let the user follow up. Cite `docs/spec-theory/`
-alongside the general literature when the question concerns mast's *design rationale*
-rather than the broader field. For actually creating, editing, reading, or mining
-files, hand off to `/mast:spec` or `/mast:mine`.
+answer intellectual authority and let the user follow up. When the question concerns
+mast's *design rationale* rather than the broader field, answer from
+**REF-THEORY.spec-theory-pointer**'s distilled claims alongside the general
+literature. For actually creating, editing, reading, or mining files, hand off to
+`/mast:spec` or `/mast:mine`.
 
 **Render.** Answer the question in prose, anchored to the cited section's named
 sources. Do **not** restate the textbook in-body — point at the section and answer
@@ -420,4 +423,7 @@ orient-specific:
 The `examples/ledger/` corpus is the practice fixture for these modes (pass
 `--root examples/ledger` to every command); its full shape — three domains, the
 `transfer-funds` deep spec, the `src/ledger/transfer-service.ts` file→spec example,
-and the `api`-domain posture case — lives in **REF-THEORY.ledger-fixture**.
+and the `api`-domain posture case — lives in **REF-THEORY.ledger-fixture**. Running
+as an installed plugin, `examples/` may not be on disk (plugin installs ship only `plugins/mast/`) — if missing, browse or clone it from
+https://github.com/MastSystems/mast-skills/tree/main/examples/ledger to run those
+`--root examples/ledger` commands.

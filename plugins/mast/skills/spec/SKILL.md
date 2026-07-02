@@ -51,7 +51,7 @@ What `spec` adds on top of that doctrine is the **authoring-side mapping** — w
 | **Architecture** | `.march` | **domain** | Components (with `port:` / `expose:` / `extends`), `Edges` (labeled + typed + proven: `edge <name>: A -[type]-> B @file=...`), `roots:`, `Compliance` blocks |
 | **Type vocabulary** | `.mtypes` | **the project's edge-type alphabet** | `EdgeTypes` (`edge-type <name>` with `transport:` / `protocol:` / `direction:` ...), `ComponentTypes`, optional `default-edge-type:` header |
 
-**On layer numbering.** `lang-march`'s Define block labels `.mspec` content "L7" and `.march` content "L6", reserving "L5" for a future `.minfra` infrastructure layer out of scope today. The `.mtypes` file is L6's type-vocabulary companion — it lives alongside `.march` but carries no components or edges of its own.
+**On layer numbering.** By convention `.mspec` content is labeled "L7" and `.march` content "L6", with "L5" reserved for a future `.minfra` infrastructure layer out of scope today. The `.mtypes` file is L6's type-vocabulary companion — it lives alongside `.march` but carries no components or edges of its own.
 
 **Constitution specs** are `.mspec` files with the header `kind: constitution`; they declare governance rules organized into **tiers** via a `Tiers` block. What a constitution / tier / Compliance block / ratchet IS — the generic governance model — is shared doctrine, see **REF-GOVERNANCE**. Non-constitution specs must not carry a `Tiers` block. The step-by-step authoring workflow (how to build a constitution and a Compliance block through the CLI) is `spec`-specific capability and lives in the **Governance authoring workflow** below.
 
@@ -162,24 +162,24 @@ What governance *is* — the constitution `kind:` + `Tiers` monotonic-superset r
 **`roots:` headers** — directory prefixes the domain owns (one per line, trailing `/` required, pure string prefix matching, no globs). **`roots:` must be disjoint across domains** — two domains claiming the same prefix fail with `roots overlap: ... each source file must map to at most one domain`:
 
 ```march
-roots: lint/
-roots: lint/export/
+roots: src/ledger/
+roots: src/ledger/journal/
 ```
 
-**`Compliance <constitution>` on `.march`** — names the constitution on the header line; the block body (indented one level, matching the formatter) declares the tier (`enforces: <tier>`) and the per-rule compliance partition:
+**`Compliance <constitution>` on `.march`** — names the constitution on the header line; the block body (indented one level, matching the formatter) declares the tier (`enforces: <tier>`) and the per-rule compliance partition (this block is verbatim from the bundled ledger corpus's `ledger.march`):
 
 ```march
-Compliance mast-governance
+Compliance ledger-governance
   enforces: standard
-  certified: R1, R2, R3, R4, R5, R6, R7, R8
-  pending: R9, R10
-  waive: R11 "lang frontend predates the rule; tracked in backlog"
+  certified: R2, R3
+  pending: R4
+  waive: R1 "integer money is enforced upstream in the shared money kernel"
 ```
 
 **`Compliance <constitution>` on `.mspec`** — a feature spec certifies itself against a constitution. Use `certified: yes` to certify every rule, or an explicit list `certified: R1, R2, I1` (invariants are citable and certifiable in mast/3). No `enforces:` on `.mspec`:
 
 ```
-Compliance mast-governance
+Compliance ledger-governance
   certified: yes
 ```
 
@@ -244,12 +244,12 @@ Inbound is **on by default**: the outbound relationships (`References`, `Targets
 | `--no-inbound` | suppresses the default inbound section |
 | `--root <path>` | repository root (default `.`); `mast.toml` `specs_dir` is honored |
 
-Flags compose — each appends its section in declaration order. Unknown spec IDs exit 1 with a diagnostic on stderr. **"Is this spec ready to start?"** is answered directly by `--with-blocked-by` (per `projection-schema` R2 `blocked_by_semantics`): an empty list means every transitive dependency and parent is `active`; a non-empty list names each blocker with its status, so you can tell a small gap (`status=pending`, just needs graduating) from a substantial one (`status=draft`, design unresolved).
+Flags compose — each appends its section in declaration order. Unknown spec IDs exit 1 with a diagnostic on stderr. **"Is this spec ready to start?"** is answered directly by `--with-blocked-by`: an empty list means every transitive dependency and parent is `active`; a non-empty list names each blocker with its status, so you can tell a small gap (`status=pending`, just needs graduating) from a substantial one (`status=draft`, design unresolved).
 
 For `.march` / `.mtypes` content, the richer query surface is list/describe/graph (by domain ID, component name, or edge-type name). `spec read <id> --no-inbound` **also** renders a `.march` / `.mtypes` body by `spec:` ID — handy for learning their grammar by example — but it carries no architecture-layer augmentations, so use the projections below to actually query the topology:
 
 ```bash
-mast list domains | components | connections | edge-types     # each: `--count` (bare int), `--root <path>`, + cli-api-contract global flags
+mast list domains | components | connections | edge-types     # each: `--count` (bare int), `--root <path>`, + the global flags `mast list --help` shows
 mast list components --domain <id>                            # components in one domain
 mast describe domain <domain-id>                              # components + cross-domain connections
 mast describe component <domain>.<component>                  # ports + exposes + connections
@@ -293,11 +293,11 @@ Flags: `--title "..."` (required); `--status draft|pending|queued|active|amended
 
 ```bash
 mast spec create user-domain --kind march --title "User-management domain"
-# produces <specs_dir>/user-domain.march; spec: value IS the domain ID (lang-march R20)
+# produces <specs_dir>/user-domain.march; spec: value IS the domain ID
 # follow up with `mast spec write` to add roots:, typed component decls, and the Edges block
 
 mast spec create project-vocab --kind mtypes --title "Project edge-type vocabulary"
-# produces <specs_dir>/project-vocab.mtypes with an empty EdgeTypes block
+# produces <specs_dir>/project-vocab.mtypes header-only; add EdgeTypes/ComponentTypes via `spec write`
 # exactly ONE .mtypes per project; a second one errors: "more than one .mtypes file in project"
 # optional default-edge-type: <name> header lets .march edges use empty brackets -[]->
 ```
@@ -421,7 +421,7 @@ mast spec patch my-spec rule set-status 5 --status active --anchor authorize
 mast spec patch my-spec rule set-status 5 --status amended
 ```
 
-When the last `[pending]` rule in a `[pending]` spec is set to `[active]` (or any non-pending status), the spec-level status **auto-flips** from `[pending]` to `[active]` in the same atomic write. Other rule mutations (add/update/remove) do NOT auto-flip — only `set-status` does, per `spec-access` R10.
+Setting a rule to `[active]` on a `[pending]` spec **auto-flips** the spec-level status from `[pending]` to `[active]` in the same atomic write — on the FIRST graduated rule, not just the last (a pending spec cannot carry `[active]` rules, so partial graduation activates the spec while the remaining rules stay `[pending]`; the CLI prints `spec status auto-flipped: pending -> active` when it fires). Setting the last `[pending]` rule to any non-pending status also flips. While later rules remain `[pending]` on the now-active spec, expect `stale-design-header` **warnings** if a `design:`/`plan:` header lingers — remove the header once the design is superseded (step 3 below). Other rule mutations (add/update/remove) do NOT auto-flip — only `set-status` does.
 
 **Design and Plan anchors block graduation** (the ratchet — REF-LIFECYCLE). An `[active]`/`[amended]` rule whose chip references a `*-design.md` / `*-plan.md` anchor is rejected at link time: `active rule R<n> has design/plan anchor <path>; graduate to code anchor`. `Code`, `Context`, `Skill`, and `Doc` anchors all permit graduation. So to graduate a rule still bound to a design anchor, first declare the landed **Code** anchor in the `Targets` block (it must point at an existing file), then re-point the chip at it. Concretely, if asked to "graduate R3" and R3's chip still references `$design_ref @file=docs/checkout-flow-design.md#authorization`:
 
@@ -453,7 +453,7 @@ mast spec patch my-spec boundary remove 1 --direction in --confirm    # the seco
 mast spec patch my-spec boundary remove 0 --direction out --confirm   # the first `out:` entry
 ```
 
-**`header set <KEY> <VALUE>` / `header remove <KEY> --confirm`** — typed upsert and removal of **extension** headers (notably `design:` / `plan:`) without round-tripping the whole file. Works on **all three kinds** — `.mspec`, `.march`, and `.mtypes` (this is the one patch branch that is not `.mspec`-only). `set` replaces an existing value in place; `remove` is idempotent when the key is absent but, being destructive, still requires `--confirm` (per `cli-api-contract` R13). Core headers (`spec`, `title`, `status`, `version`) are not extension headers — change those through write mode (`.mspec`) or `mask` (any kind).
+**`header set <KEY> <VALUE>` / `header remove <KEY> --confirm`** — typed upsert and removal of **extension** headers (notably `design:` / `plan:`) without round-tripping the whole file. Works on **all three kinds** — `.mspec`, `.march`, and `.mtypes` (this is the one patch branch that is not `.mspec`-only). `set` replaces an existing value in place; `remove` is idempotent when the key is absent but, being destructive, still requires `--confirm`. Core headers (`spec`, `title`, `status`, `version`) are not extension headers — change those through write mode (`.mspec`) or `mask` (any kind).
 
 ```bash
 mast spec patch my-spec    header set design docs/my-spec-design.md   # .mspec
@@ -510,7 +510,7 @@ printf '%s' '{"components":[{"id":"CheckoutSvc","delete":true}]}' \
   | mast spec patch checkout-arch mask --base-fingerprint "$FP"   # rejected if the file moved since the read
 ```
 
-**Render.** The patch op runs the in-memory pipeline and writes atomically. **Round-trip property:** `rule add` of R<n> followed by `rule remove` R<n> `--confirm` yields a file byte-identical to the pre-add state; same for boundary add+remove of the same per-direction index. On failure: file on disk unchanged, diagnostics on stderr, exit code non-zero — `2` for finding-path rejections (parse, lint including weasel words, or non-ascii content) and `1` for user-path errors (unknown spec, ID mismatch, invalid ID, missing `--confirm`), per `cli-api-contract` R7. Read stderr, fix the input, retry — the patch never leaves partial state on disk.
+**Render.** The patch op runs the in-memory pipeline and writes atomically. **Round-trip property:** `rule add` of R<n> followed by `rule remove` R<n> `--confirm` yields a file byte-identical to the pre-add state; same for boundary add+remove of the same per-direction index. On failure: file on disk unchanged, diagnostics on stderr, exit code non-zero — `2` for finding-path rejections (parse, lint including weasel words, or non-ascii content) and `1` for user-path errors (unknown spec, ID mismatch, invalid ID, missing `--confirm`). Read stderr, fix the input, retry — the patch never leaves partial state on disk.
 
 **Budget.** One typed op per construct mutation. When `rule add`/`rule update` introduces or rewrites a constraint, apply the authoring disciplines and high-leverage patterns below; additionally, **if the patched rule realizes a normative claim from another spec, add `Cites <spec>.R<n>`** on its own line under the rule header (the lockfile content-pins it — `Cites` is shared doctrine, see **REF-IDIOMS** / **REF-DEPENDENCIES**). `mast spec patch` runs per-file lint inline, so the diagnostic appears on stderr before the file lands.
 
@@ -520,9 +520,9 @@ Six disciplines that decide whether a rule earns its place — `spec`-specific a
 
 **Speak in interface phenomena.** A rule's claims must be about observable behavior at a boundary — CLI output, exit codes, file formats, on-disk artifacts, public API signatures — never about internal implementation state ("the HashMap is rebuilt") and never about unobservable intent ("the user feels confident"). `Given` carries assumptions about the world as it is (indicative mood); `Then` carries obligations on what the system must make observable (optative mood). If a constraint's key terms are not visible from outside the implementation, nothing can check the rule and it should not be written.
 
-**Restate only what a checker diffs.** Restating structure that already lives elsewhere (a Cargo.toml dependency list, a CI workflow matrix) is good if and only if some fitness function diffs the two encodings — the restatement is then a second, independently checkable encoding of the same fact, which is exactly what makes `build-topology` this corpus's best spec. Restatement without a checker is the defect: it drifts silently. Pair this with the **deletion test**: if removing a rule would not admit an acceptable-but-wrong implementation, the rule was implementation detail — cut it.
+**Restate only what a checker diffs.** Restating structure that already lives elsewhere (a Cargo.toml dependency list, a CI workflow matrix) is good if and only if some fitness function diffs the two encodings — the restatement is then a second, independently checkable encoding of the same fact — the bundled `examples/ledger` corpus does exactly this in `ledger.march`, re-encoding the service wiring as typed edges whose `@file=` proofs the linker verifies against the tree. Restatement without a checker is the defect: it drifts silently. Pair this with the **deletion test**: if removing a rule would not admit an acceptable-but-wrong implementation, the rule was implementation detail — cut it.
 
-**Prefer the slowest-rotting falsifiable anchor.** Claim forms rot at different rates. Volatile numeric snapshots ("today: `0.11.0`", "56 lines remain") rot fastest and rot silently; symbol and file anchors rot when code moves but at least rot loudly; interface prose anchored to a stable command or format rots slowest. When a number is unavoidable, phrase it as the invariant being enforced, never the snapshot: "MUST stay under the 200-line cap enforced by `grammar/tests/line_cap.rs`", not "140 lines used, 60 remain".
+**Prefer the slowest-rotting falsifiable anchor.** Claim forms rot at different rates. Volatile numeric snapshots ("today: `0.11.0`", "56 lines remain") rot fastest and rot silently; symbol and file anchors rot when code moves but at least rot loudly; interface prose anchored to a stable command or format rots slowest. When a number is unavoidable, phrase it as the invariant being enforced, never the snapshot: "the grammar MUST stay under the 200-line cap its line-cap test enforces", not "140 lines used, 60 remain".
 
 **Cover the unwanted-behaviour cases.** Given/When/Then biases authors toward happy paths. When drafting a rule, ask which shape the obligation actually is: unwanted behaviour ("If <trigger> occurs, the system MUST ...") or optional feature ("Where <feature> is enabled, ..."). Express the trigger in a `When` clause rather than burying it in `Given` (the `conditional-given-suggest-when` warning is the automated half of this), and write the failure-path rules explicitly — a spec whose every rule describes success has not specified the part that pages someone.
 
@@ -536,40 +536,41 @@ Four patterns measurably improve how downstream agents read the spec you write o
 
 ### 1. Pipe-block `|` bodies for multi-line constraint values
 
-Any constraint value that spans multiple lines or pins a regex, a JSON shape, an EBNF production, a CLI invocation, or a literal error message belongs in a `| ...` pipe block — never paraphrased into prose. Concrete literals beat prose because the reader can grep them, the formatter preserves whitespace, and downstream tooling can lift them out byte-for-byte.
+Any constraint value that spans multiple lines or pins a regex, a JSON shape, an EBNF production, a CLI invocation, or a literal error message belongs in a `| ...` pipe block — never paraphrased into prose. Concrete literals beat prose because the reader can grep them and downstream tooling can lift them out. One formatting caveat: `spec read`/`spec write` keep `| ` lines verbatim, but a corpus-wide `mast lint fmt` word-reflows pipe bodies to the `line_width` budget (default 180, a `mast.toml` key) — so treat the pipe body as one logical value and do not rely on interior column alignment or hand-placed line breaks surviving.
 
-Prose form (avoid for multi-line literals):
-
-```
-MUST group_key: the concurrency group key is the workflow name plus a hyphen plus the PR number or the ref
-```
-
-Pipe-block form (preferred — mast/3 multi-line syntax):
+Prose form (avoid for pinned literals):
 
 ```
-MUST group_key:
-  | the group key is the GitHub Actions expression:
-  |   ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  | so PR-scoped and branch-scoped runs do not collide
+MUST journal_shape: a successful transfer writes two journal entries, one negative and one positive, under a shared id
+```
+
+Pipe-block form (preferred — mast/3 multi-line syntax; from the bundled `examples/ledger` corpus, `transfer-funds.R2` — note the mid-value line break: that is `line_width` reflow at work):
+
+```
+success.journal_shape:
+  | a successful transfer of 500 minor units from acct-a to acct-b appends exactly two journal entries sharing one transferId: { account: "acct-a", minor: -500 } and { account:
+  | "acct-b", minor: 500 }, and `EntryStore.forTransfer(transferId)` returns both
 ```
 
 ### 2. Per-rule `Cites <spec>.R<n>` clauses on implementation rules
 
 When a rule realizes a normative claim from another spec, declare it: `Cites <spec>.R<n>` on its own line directly under the `Rule R<n> [...]` header. The lockfile (`specs/mast.lock`) pins the citation with a blake3 content-hash, so the agent reading the implementation sees the contract pin and the linker catches drift if the upstream rule changes.
 
+**The lock row is not self-maintaining — you add it in a separate step.** A brand-new `Cites` line has no `mast.lock` row yet, so landing it with `mast spec write --lint` (or any lint gate) fails on the unresolved citation. Working order: write the `Cites` line *without* `--lint` (plain `mast spec write` / `mast spec patch`), then run `mast cite ack <from-spec>.R<n>` (or `mast cite ack --all`) to hash the cited rule and add the row, then re-lint — now clean. After later editing a *cited* rule's body, re-run `mast cite ack` to re-pin (`mast cite list` shows any non-`fresh` rows).
+
 Without the pin:
 
 ```
-Rule R4.pr-title-check [active $pr_title_workflow]
-  Given a pull request is opened ...
+Rule R1.replay-returns-prior-result [active $lookup ledger.IdempotencyStore.lookup ledger.TransferService.transfer]
+  Given a transfer has already completed for an Idempotency-Key ...
 ```
 
-With the pin (modeled on `ci-gates.R4`):
+With the pin (from the bundled ledger corpus, `idempotent-transfer.R1` — its replay rule realizes the paired-entries contract in `transfer-funds.R2`):
 
 ```
-Rule R4.pr-title-check [active $pr_title_workflow]
-  Cites release-conventions.R1
-  Given a pull request is opened ...
+Rule R1.replay-returns-prior-result [active $lookup ledger.IdempotencyStore.lookup ledger.TransferService.transfer]
+  Cites transfer-funds.R2
+  Given a transfer has already completed for an Idempotency-Key ...
 ```
 
 ### 3. `When` clauses for conditional guards
@@ -579,18 +580,18 @@ If your `Given` paragraph contains "if", "once", "unless", "when", "whenever", o
 Prose form (will trigger `conditional-given-suggest-when`):
 
 ```
-Rule R3.release-cut [active $release_please_workflow]
-  Given a push to `main` adds commits whose subjects are conventional commits and at least one is a feat or fix
-  Then the release-please gate MUST open a release PR ...
+Rule R1.positive-amount-required [active $transfer]
+  Given a transfer request arrives whose amount, when expressed in minor units, is not positive
+  Then the transfer is rejected with an InvalidAmount error ...
 ```
 
-`When` form (modeled on `release-conventions.R3`):
+`When` form (from the bundled ledger corpus, `transfer-funds.R1`):
 
 ```
-Rule R3.release-cut [active $release_please_workflow]
-  Given a push to `main` adds one or more commits whose subjects are {conventional_commit} entries
-  When at least one added commit is a {release_cutting_type}
-  Then the {release_please_gate} MUST open a release PR ...
+Rule R1.positive-amount-required [active $transfer ledger.TransferService.transfer]
+  Given a transfer request arrives at {api.Api}
+  When the amount in minor units is not positive
+  Then the transfer is rejected with an InvalidAmount error ...
 ```
 
 ### 4. Falsifiable `success.<name>` and `invariant.<name>` bodies
@@ -600,21 +601,21 @@ Reserved dotted constraint keys (`success.X`, `invariant.X`) are the rule's exec
 Prose form (will trigger `success-criterion-not-falsifiable`):
 
 ```
-success.title_accepted: a well-formed PR title passes the check
+success.rejects_zero: an invalid transfer amount fails cleanly
 ```
 
-Anchored form (from `release-conventions.R1`):
+Anchored form (from the bundled ledger corpus, `transfer-funds.R1` and `get-balance.R2`):
 
 ```
-success.title_accepted: a PR titled `feat(lang): add dotted key support` passes the check
-success.title_rejected: a PR titled `fix stuff` fails the check
+success.rejects_zero: a transfer of `0` minor units fails with `InvalidAmount`
+success.unknown_404: `GET /accounts/does-not-exist/balance` returns status `404`
 ```
 
 One step further: **shape is not execution.** The falsifiability check accepts any backtick pair or numeric comparator, so it is possible to write an anchor that satisfies the lint while checking nothing — that is a defect, not a pass. The strongest `success.` body names a command someone can actually run: pipe-block the invocation and its expected output so the criterion is a procedure, not a vibe. Prefer criteria some fitness function (a test, a CI gate) actually executes; a criterion only a human could carry out should say so explicitly.
 
 ### Lint warnings agents should respond to
 
-These three per-file warnings fire when the patterns above are violated. Treat each as "fix unless you can articulate why the prose form is correct here." (The trigger-word lists behind each validator are catalogued in **REF-IDIOMS**.)
+These three per-file warnings fire when the patterns above are violated. Treat each as "fix unless you can articulate why the prose form is correct here." (The trigger-word lists in the table below are the validators' exact match sets — machine-coupled; preserve them verbatim.)
 
 | Warning code | Validator | Fires when | How to fix |
 |---|---|---|---|
@@ -630,7 +631,7 @@ Run `mast lint check .` to see them; they are warnings, not errors, but they ide
 
 The no-emoji rule is a project convention — see **REF-CONVENTIONS**. The rest are `spec`-specific:
 
-- **CLI-mediated, always.** A direct `Write`/`Edit` can leave malformed content on disk until someone runs the linter. The `mast spec` subcommands (`create`, `read`, `write`, `patch`) run the parse-lint-format pipeline in memory before touching the filesystem, guaranteeing every committed `.mspec` is syntactically valid and canonically formatted; the PreToolUse hook enforces it (REF-HOOKRULE). For the full design contract see `specs/spec-access.mspec`.
+- **CLI-mediated, always.** A direct `Write`/`Edit` can leave malformed content on disk until someone runs the linter. The `mast spec` subcommands (`create`, `read`, `write`, `patch`) run the parse-lint-format pipeline in memory before touching the filesystem, guaranteeing every committed `.mspec` is syntactically valid and canonically formatted; the PreToolUse hook enforces it (REF-HOOKRULE). The contract in one line: no spec bytes reach disk without passing parse, lint, and format first — and on any failure the file on disk is left unchanged.
 - **Author the slowest-rotting anchor available**, per the authoring disciplines above — and never paraphrase a normative prefix away from the constraint it governs.
 - **No emoji.** Per project convention (REF-CONVENTIONS).
 - **Verify after corpus-changing writes.** `mast describe attached <spec-id>` (bleed check) then `mast lint check .`; `mast context render` + commit when the corpus listing changed.

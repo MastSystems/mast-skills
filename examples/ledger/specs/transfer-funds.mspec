@@ -37,6 +37,10 @@ Invariant I2.double-entry-sums-to-zero [active]
 
 Invariant I3.single-currency [active]
   a transfer touches accounts that share one currency; cross-currency arithmetic is refused
+    success.mixed_rejected: transferring `USD` minor units into a `EUR` account fails with `CurrencyMismatch`
+
+Invariant I4 [active]
+  the journal is append-only
 
 Rule R1.positive-amount-required [active $transfer ledger.TransferService.transfer]
   Given a transfer request arrives at {api.Api}
@@ -51,7 +55,8 @@ Rule R2.debit-before-credit [active $transfer $append ledger.TransferService.tra
     MUST paired_entries: a successful transfer MUST append exactly two entries with the same transferId
     invariant.entries_balance: the two appended entries' minor units sum to `0`
     success.journal_shape:
-      | a successful transfer appends two entries that share one transferId ; one is the negated source amount , the other the matching destination amount
+      | a successful transfer of 500 minor units from acct-a to acct-b appends exactly two journal entries sharing one transferId: { account: "acct-a", minor: -500 } and { account:
+      | "acct-b", minor: 500 }, and `EntryStore.forTransfer(transferId)` returns both
 
 Rule R3.overdraft-rejected [active $apply accounts.AccountService.apply]
   Given a source account without sufficient funds

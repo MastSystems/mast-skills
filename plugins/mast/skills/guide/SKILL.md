@@ -7,7 +7,7 @@ description: The continuity companion — use when the user asks "what's next", 
 
 This skill answers "where am I / what's next" by surfacing the corpus's actionable standing and ranking it — then helping you choose. The orchestrator (main thread) dispatches one sub-agent to run the read-only query sweep and rank the candidates; only a terse ranked digest crosses back. If you find yourself running the full `mast list` / `mast describe` sweep in the main context, stop and re-dispatch — the sweep belongs in the surveyor sub-agent so the main thread's tokens don't decay.
 
-The load-bearing discipline: **surface and rank, never decide.** The rigid tier — which specs are ready, blocked, pending, in-scope, stale — is a deterministic function of the corpus plus the git working tree, and the surveyor computes it. The fuzzy tier — which of the ranked candidates *matters most* given your goals — is a value judgment that stays with you, in conversation. The skill must never collapse the worklist to a single mandated answer. (Design: `docs/mast-next-design.md`; contract: `next-projection` I2 `surface_not_decide`.)
+The load-bearing discipline: **surface and rank, never decide.** The rigid tier — which specs are ready, blocked, pending, in-scope, stale — is a deterministic function of the corpus plus the git working tree, and the surveyor computes it. The fuzzy tier — which of the ranked candidates *matters most* given your goals — is a value judgment that stays with you, in conversation. The skill must never collapse the worklist to a single mandated answer.
 
 Reference: REF-BINARY, REF-ROUTING, REF-DEPENDENCIES, REF-LIFECYCLE, REF-POSTURE
 *(Reference sections live in `plugins/mast/skill-reference/` — e.g. `REF-LIFECYCLE` resolves to `plugins/mast/skill-reference/REF-LIFECYCLE.md`.)*
@@ -41,6 +41,7 @@ Spawn a single sub-agent with the brief below. It runs the read-only query sweep
 > **You are the standing surveyor for `mast guide`. Using ONLY read-only `mast` commands plus `git diff --name-only`, compute and rank the corpus's actionable candidates. Do not write anything. Return a ranked worklist, not a single answer.**
 >
 > **Query vocabulary (compose these — nothing more exotic is needed):**
+> - `mast doctor --format json` — run FIRST. The `phase` gates the whole sweep: on a young corpus (bare/initialized) a ranked worklist is premature — return doctor's `nextCommand` as the single top row and stop. Its findings also surface as caveats.
 > - `mast list specs --status pending` and `--status draft` — the candidate pool (specs that could advance).
 > - `mast spec read <id> --with-blocked-by` — readiness: an **empty** blocked-by closure means *ready to ship*; a non-empty one lists the blockers.
 > - `mast describe status <id>` — `graduation_eligible`, `fully_implemented`, and the `pending_rule_ids`.
@@ -63,11 +64,11 @@ Present the surveyor's ranked worklist to the user verbatim-ish (tighten, don't 
 
 ## Surface, never decide
 
-This is the one rule the skill cannot break. The surveyor emits an *ordered* list with rationale; the main thread helps the human *select*. A `guide` run that ends in "you should do X" without the human choosing has silently encoded a priority function it does not own — the same failure `next-projection` I2 forbids for the tool. Rank is mechanical; selection is judgment; judgment is the user's.
+This is the one rule the skill cannot break. The surveyor emits an *ordered* list with rationale; the main thread helps the human *select*. A `guide` run that ends in "you should do X" without the human choosing has silently encoded a priority function it does not own — the same surface-don't-decide failure the tool itself is forbidden from committing. Rank is mechanical; selection is judgment; judgment is the user's.
 
 ## Forward compatibility with `mast next`
 
-Today the surveyor *composes* the projections above. When the `next-projection` spec lands as a real `mast next` verb (its R3 verb amendment), the surveyor's whole sweep collapses to a single `mast next --format json` call — same standing, same ranking, computed once in one tested home instead of re-derived here. The brief changes from "compose these queries" to "call `mast next`"; nothing else about this skill moves. Drafting `guide` first, composing directly, resolves the `next-projection` R4 open question in favor of *skill-first, verb-as-single-home-refactor-later*.
+Today the surveyor *composes* the projections above. If a future mast release ships a first-class `mast next` verb, the surveyor's whole sweep collapses to a single `mast next --format json` call — same standing, same ranking, computed once in one tested home instead of re-derived here. The brief changes from "compose these queries" to "call `mast next`"; nothing else about this skill moves. Probe with `mast next --help`: if the verb exists, use it; if not, compose.
 
 ## Style rules
 
@@ -86,10 +87,10 @@ Today the surveyor *composes* the projections above. When the `next-projection` 
 > Main thread dispatches the surveyor. Pass 1: `mast list specs --status pending` + `--status draft`, `mast list pending`, `git diff --name-only | mast list scope --file -`. Pass 2 (top few): `--with-blocked-by` + `describe status`. It returns:
 >
 > ```
-> web-frontend    — in-scope — touched by the working diff, carries [pending] rules — next: /mast:check web-frontend
-> next-projection — blocked  — draft; blocked by subagent-contract [pending]        — next: /mast:spec read subagent-contract --with-blocked-by
-> skill-suite     — blocked  — ready-shape, but 3 deps still [pending]              — next: /mast:spec read skill-suite --with-blocked-by
-> caveat: nothing is graduation-ready right now — the [pending] pool is dep-blocked, with subagent-contract a common root.
+> read-journal   — in-scope — touched by the working diff, carries [pending] rules — next: /mast:check read-journal
+> close-account  — blocked  — draft; blocked by read-journal [pending]             — next: /mast:spec read close-account --with-blocked-by
+> export-history — blocked  — ready-shape, but 3 deps still [pending]              — next: /mast:spec read export-history --with-blocked-by
+> caveat: nothing is graduation-ready right now — the [pending] pool is dep-blocked, with read-journal a common root.
 > ```
 >
-> Main thread: "Nothing's clear-to-ship yet — the pending specs are blocked on each other, with `subagent-contract` a common root. `web-frontend` is what your working tree is already touching. Want to unblock the root, stay on what you're editing — or were you mid-thought on something not in the corpus yet?" — it surfaces the standings and asks; it does **not** declare a winner.
+> Main thread: "Nothing's clear-to-ship yet — the pending specs are blocked on each other, with `read-journal` a common root. `read-journal` is also what your working tree is already touching. Want to unblock the root, stay on what you're editing — or were you mid-thought on something not in the corpus yet?" — it surfaces the standings and asks; it does **not** declare a winner.

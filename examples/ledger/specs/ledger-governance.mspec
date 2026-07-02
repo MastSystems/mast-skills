@@ -13,6 +13,7 @@ Targets
 Tiers
   baseline: R1, R2
   standard: baseline + R3, R4
+  strict: R*
 
 Rule R1.integer-money [active $money]
   Given any monetary amount in the system

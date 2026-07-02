@@ -38,8 +38,6 @@ The `archetype:` custom header takes one of exactly two values:
 - `component`
 - `process`
 
-(Used on `subagent-contract` / `claude-plugin`.)
-
 ## Shared MUST-NOT block (version control / hooks)
 
 These prohibitions are project-wide and apply to every skill and agent that
